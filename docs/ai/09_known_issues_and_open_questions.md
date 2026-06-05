@@ -11,8 +11,8 @@ the old contradictions below are now **reconciled** — kept here as history.
 | Topic | Old README / 2024 PDF said | Reality (now reflected in README) |
 |-------|-----------------------------|-----------------------------------|
 | MCU | (implied 2024 ESP32-C6 hardware) | ESP32-**C5** (`master`); C6 lives on `legacy/esp32-c6` |
-| Robot-to-robot comms | "Use RX, TX for UART… LOGV… A0/A1 channels (00/01/10/11)" | **No robot-to-robot protocol in firmware** (planned); no LOGV/A0/A1 on V7. README now says so. |
-| Start/stop readout | OUT pins only | OUT pins **or** `PLAY`/`STOP` on UART0 |
+| Robot-to-robot comms | "Use RX, TX for UART… LOGV… A0/A1 channels (00/01/10/11)" | Old LOGV/A0/A1 scheme is gone. V7 firmware now has an experimental SIBCP UART1/USB-C <-> ESP-NOW bridge. |
+| Start/stop readout | OUT pins only | OUT pins or reserved SIBCP `/system/game_state` topic on UART1, USB-C, and UART0 TX |
 | Board version | "RCJ Soccer SuperTeams 2024", `modul_v3` | New board silk **"V7 2026"** ("robofuze"); README title de-yeared |
 | Schematic | `pcb_schematic/SCH.pdf` (2024) | V7 schematic `SCH_Schematic1_2026-05-31.pdf` present; old 2024 files removed |
 
@@ -56,6 +56,10 @@ the old contradictions below are now **reconciled** — kept here as history.
 8. **`FW_VERSION` macro** — `FW_VERSION = MAJOR*0xFF + MINOR` (note `*0xFF`, not `*100` or
    `<<8`); the over-BLE reply sends `MAJOR` and `MINOR` separately, so this combined macro's
    only consumer/intent is unclear.
+9. **Experimental inter-bot bridge is broadcast-only** — SIBCP frames are validated and
+   bridged over ESP-NOW, but there is no addressing, duplicate filtering, ACK/retry,
+   encryption, or service registry in the module. More than two modules need protocol
+   hardening before match use.
 
 ## Schematic details — NOW RESOLVED
 
@@ -73,7 +77,10 @@ previously-blocking unknowns are resolved (see [05_hardware_mapping.md](05_hardw
 - **Third button** B3 = IO6 (SW2), active-low w/ 10 kΩ pull-up. Intended function still TBD.
 - **Button pulls**: external 10 kΩ (R4/R5/R6), so `INPUT` (no internal pull-up) is fine.
 - **UART**: UART0 (RX0/TX0, flashing/primary) and UART1 (RX1=IO4, TX1=IO5) on U3 header.
-- **USB**: native USB-CDC on IO13/IO14 (the flashing/reset path) — do not reassign.
+- **USB**: native USB on IO13/IO14 (flashing/reset path and SIBCP host transport) — do not
+  reassign.
+- **Inter-bot bridge**: UART1 IO4/IO5 at 460800 baud and USB-C to ESP-NOW 5 GHz channel 36,
+  SIBCP frame validation and forwarding implemented.
 
 Residual low-risk verifications (do not block re-pinning) are listed in
 [05_hardware_mapping.md](05_hardware_mapping.md#residual-items-to-verify-low-risk-do-not-block-firmware-re-pinning)
@@ -86,7 +93,8 @@ Residual low-risk verifications (do not block re-pinning) are listed in
 2. Must **old-module (C6) compatibility** be preserved, or is C5 now the only target? Can the
    commented C6 pin block be removed? — **Decided:** C5-only on `master`; C6 lives on a
    `legacy/esp32-c6` branch. See [11_legacy_c6_firmware.md](11_legacy_c6_firmware.md).
-3. Is the **UART robot-to-robot** feature still required/planned, or fully deprecated?
+3. What addressing/retry/security model is required before SIBCP inter-bot communication
+   can support more than two modules?
 4. Supercapacitor: pure hardware ride-through, or should firmware **detect/announce** a power
    dip (LED/buzzer/BLE notification, safe-state)?
 5. Desired future **RGB LED** patterns beyond PLAY=green and stopped=red, plus any future
@@ -98,7 +106,8 @@ Residual low-risk verifications (do not block re-pinning) are listed in
 
 ## Build/CI notes
 
-- ESP-IDF was not available in this checkout; a fresh build was not verified here.
+- Fresh local verification build passed on 2026-06-05 with the custom 6 MB factory app
+  partition; the ESP-NOW app image is too large for the old 1 MB default partition.
 - The workflow checks out `submodules: recursive`, but **no `.gitmodules` exists** — the
   recursive flag is currently a no-op. Confirm whether submodules are planned.
 

@@ -11,7 +11,8 @@
 #include "definitions.h"
 #include "buzzer.h"
 #include "display.h"
-#include "serial_status.h"
+#include "interbot_comm.h"
+#include "sibcp_protocol.h"
 #include "status_led.h"
 #include "state_machine.h"
 
@@ -36,18 +37,39 @@ static uint16_t get_remaining_time() {
     return 0;
 }
 
+static uint8_t get_sibcp_game_state(stm_states state) {
+    switch (state) {
+        case STM_INIT:
+            return SIBCP_GAME_STATE_INIT;
+        case STM_DISCONNECTED:
+            return SIBCP_GAME_STATE_DISCONNECTED;
+        case STM_PLAY:
+            return SIBCP_GAME_STATE_PLAY;
+        case STM_STOP:
+            return SIBCP_GAME_STATE_STOP;
+        case STM_DAMAGE:
+            return SIBCP_GAME_STATE_DAMAGE;
+        case STM_HALF_TIME:
+            return SIBCP_GAME_STATE_HALF_TIME;
+        case STM_GAME_OVER:
+            return SIBCP_GAME_STATE_GAME_OVER;
+        default:
+            return SIBCP_GAME_STATE_INIT;
+    }
+}
+
 static void update_output_satet() {
     if (robot_play) {
         digitalWrite(OUTPUT1_GPIO, HIGH);
         digitalWrite(OUTPUT2_GPIO, HIGH);
         status_led_set_play(true);
-        serial_status_println("PLAY");
     } else {
         digitalWrite(OUTPUT1_GPIO, LOW);
         digitalWrite(OUTPUT2_GPIO, LOW);
         status_led_set_play(false);
-        serial_status_println("STOP");
     }
+
+    interbot_comm_send_system_game_state(get_sibcp_game_state(current_state), robot_play);
 }
 
 

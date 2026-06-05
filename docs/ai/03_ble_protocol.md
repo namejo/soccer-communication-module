@@ -20,10 +20,19 @@ UUID scheme. NimBLE stack (`CONFIG_BT_NIMBLE_ENABLED=y`).
 | Service | `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` | NUS |
 | RX (app → module, write) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | `WRITE` + `WRITE_NR` (write-without-response) |
 | TX (module → app, notify) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | `NOTIFY` |
+| LOG (module → app/dev tool, notify) | `6E400004-B5A3-F393-E0A9-E50E24DCCA9E` | `NOTIFY` |
 
 > Changed in commit `ca23261`: RX gained `WRITE_NR`, TX switched from `INDICATE` (with a
 > `BLE2902` descriptor) to plain `NOTIFY`. **Any app expecting indications/CCCD on TX or
 > requiring write-with-response on RX must be re-checked against this firmware.**
+
+The LOG characteristic is for SIBCP inter-bot debug messages only. It is written by
+`ble_send_log()` when a BLE central is connected and does not carry referee-app protocol
+messages. Example notification payload:
+
+```text
+[SIBCP UART->NOW] SRV_REQ id=1 tx=402 len=24
+```
 
 ### Connection parameters (NimBLE only)
 

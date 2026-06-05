@@ -37,14 +37,19 @@ while waiting for a connection).
   release UART (bootloader/IDF logs OFF, console on UART0) with a `sdkconfig.debug` overlay
   for USB-C logging during development.
 - Target chip: **ESP32-C5**, ESP-IDF **v5.5.4**, `espressif/arduino-esp32` `^3.3.0`, **NimBLE**.
-- Runs on the new ESP32-C5 hardware in **legacy-compatibility mode**: same behavior as the
-  old module, only with remapped pins. UART/`Serial` is still used and the PLAY/STOP status
-  is mirrored to USB Serial/JTAG for USB hosts.
+- Runs on the new ESP32-C5 hardware with remapped pins plus new host serial behavior:
+  referee state changes are emitted as the reserved SIBCP `/system/game_state` topic.
+  UART1 and USB-C are full SIBCP transports; UART0 TX is a transmit-only SIBCP output mirror.
 - New hardware (silkscreen **"V7 2026"**, branding "robofuze") adds RGB LED, buzzer,
   supercapacitor backup, three buttons, ON/OFF switch, and USB-C direct programming.
   The RGB LED now shows PLAY as dimmed green and stopped output as dimmed red, and the buzzer gives a
   short beep on match-state changes. Third-button behavior is still future work. The
   supercap is hardware-only.
+- Experimental robot-to-robot transport is implemented as a SIBCP bridge: UART1
+  (`IO4`/`IO5`, 460800 baud) or USB-C to 5 GHz ESP-NOW broadcast on channel 36. The module
+  validates frames and bridges them; the robot MCU owns topic/service behavior. A Python
+  helper package in `python/sibcp` provides importable topic/service definitions for
+  Python-based robot controllers.
 - Release/flashing is automated: Git tag → GitHub Actions → GitHub Release + GitHub Pages
   web flasher (Web Serial / esptool-js, ESP32-C5 USB reset path).
 
@@ -64,6 +69,9 @@ while waiting for a connection).
 | 10 | [09_known_issues_and_open_questions.md](09_known_issues_and_open_questions.md) | Risks, TODOs, unknowns |
 | 11 | [10_future_change_plan.md](10_future_change_plan.md) | Staged plan for new HW features |
 | 12 | [11_legacy_c6_firmware.md](11_legacy_c6_firmware.md) | Final legacy ESP32-C6 firmware: git layout, build, flashing, release plan |
+| 13 | [12_sibcp_interbot_comm.md](12_sibcp_interbot_comm.md) | Experimental SIBCP UART1 <-> ESP-NOW bridge |
+| 14 | [13_sibcp_future_ideas.md](13_sibcp_future_ideas.md) | Future SIBCP topics/services for tactics and module feedback |
+| — | [../../SECURITY.md](../../SECURITY.md) | Current wireless security audit and hardening roadmap |
 
 ## Most important source files
 
@@ -74,6 +82,9 @@ while waiting for a connection).
 | `firmware/RCj_comm_module/definitions.h` | Versions, BLE/UART constants, **GPIO pin map** |
 | `firmware/RCj_comm_module/ble.cpp` / `.h` | BLE server, UUIDs, RX/TX characteristics, callbacks |
 | `firmware/RCj_comm_module/ble_processing.cpp` / `.h` | Message IDs enum, queue, command dispatch |
+| `firmware/RCj_comm_module/interbot_comm.cpp` / `.h` | UART1 <-> ESP-NOW bridge for SIBCP frames |
+| `firmware/RCj_comm_module/sibcp_protocol.cpp` / `.h` | SIBCP frame parser, CRC, packet metadata |
+| `python/sibcp/src/sibcp/` | Python SIBCP client library for topics, services, codecs, and serial transport |
 | `firmware/RCj_comm_module/state_machine.cpp` / `.h` | States, output pin control, timers |
 | `firmware/RCj_comm_module/display.cpp` / `.h` | OLED screen rendering |
 | `firmware/RCj_comm_module/functions.cpp` / `.h` | MAC, score/indicator state, GPIO init, button logic |
@@ -83,8 +94,6 @@ while waiting for a connection).
 
 ## Current limitations / cautions for agents
 
-- **Do not make functional firmware changes** until the new schematic is available and the
-  pin map in `05_hardware_mapping.md` is verified.
 - The `.ino` and `main/app_main.cpp` define **two parallel entry points** that must be kept
   in sync (see [02](02_firmware_architecture.md)). The CI build uses the ESP-IDF path
   (`main/`), not the `.ino`.

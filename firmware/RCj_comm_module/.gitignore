@@ -1,5 +1,6 @@
 build/
 build_idf/
+build_*/
 managed_components/
 .vscode/
 sdkconfig

@@ -47,41 +47,41 @@ present but commented out.
 - Rendered as two large glyphs on PLAY/STOP; inline in PENALTY/HALFTIME titles; small on
   GAME OVER. Only the first 1–2 characters are used.
 
-## Planned RGB LED behavior — PROPOSED, NOT IMPLEMENTED
+## RGB LED behavior
 
-> The following are **design ideas only**. No RGB LED code exists; the pin/type is unknown
-> (see [05](05_hardware_mapping.md)). Listed to seed future design discussion — do not build
-> until the schematic confirms the LED.
+Implemented in `status_led.cpp`:
 
-| State | Proposed LED idea (unconfirmed) |
-|-------|----------------------------------|
-| `STM_DISCONNECTED` | slow blue/white pulse "waiting" |
-| `STM_PLAY` | solid green |
-| `STM_STOP` | solid red |
-| `STM_DAMAGE` | amber/orange, maybe blinking with countdown |
-| `STM_HALF_TIME` | amber steady |
-| `STM_GAME_OVER` | dim white / off |
+| Robot output state | LED |
+|--------------------|-----|
+| PLAY / GO | green at 50% PWM duty |
+| stopped output | red at 50% PWM duty |
+| unused blue channel | initialized off |
 
-## Planned buzzer behavior — PROPOSED, NOT IMPLEMENTED
+The LED tracks robot output, not every display state individually. `STM_STOP`, penalty,
+halftime, game-over, disconnected, and init all leave the robot output stopped and therefore
+show red.
 
-> Same caveat: no buzzer code exists; pin and passive/active type unknown.
+Future ideas still open: waiting pulse, penalty/halftime amber, game-over pattern, and any
+blue-channel use.
 
-| Event | Proposed buzzer idea (unconfirmed) |
-|-------|------------------------------------|
-| BLE connected | short single beep |
-| `PLAY` | short rising beep |
-| `STOP` | short low beep |
-| Penalty start / countdown end | distinct beep pattern |
-| Self-penalty request acknowledged | confirmation beep |
-| Power dip (supercap) | optional warning tone |
+## Buzzer behavior
+
+Implemented in `buzzer.cpp`: a non-blocking 2.7 kHz, 80 ms tone on match-state changes.
+The firmware calls `buzzer_update()` from `stm_update()`, so the tone timeout does not block
+BLE, display, SIBCP forwarding, or output-pin updates.
+
+Future ideas still open: different play/stop tones, penalty patterns, self-penalty
+acknowledgement, and power-dip warning.
 
 ## Source files reviewed
 
-`display.cpp/.h`, `functions.cpp`, `fonts.h` (referenced), `images.h` (referenced).
+`display.cpp/.h`, `status_led.cpp/.h`, `buzzer.cpp/.h`, `functions.cpp`, `fonts.h`
+(referenced), `images.h` (referenced).
 
 ## Open questions
 
 - Confirm OLED geometry is 128×64 on the new board (assumed from `drawXbm` dimensions).
-- Desired RGB LED / buzzer semantics from the maintainer (the tables above are guesses).
+- Desired RGB LED / buzzer semantics beyond the implemented PLAY=green, stopped=red, and
+  short state-change beep.
 - Should display feedback and LED/buzzer be unified behind one `feedback`/HAL module?
 </content>

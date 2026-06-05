@@ -9,6 +9,7 @@
 
 // UART
 #define UART_SPEED      115200
+#define INTERBOT_UART_SPEED     460800
 
 // BLE
 #define BLE_NAME            "RCJs-m_" + BLE_MAC_to_string()
@@ -35,6 +36,13 @@
 // Status pins
 #define OUTPUT1_GPIO    9
 #define OUTPUT2_GPIO    8
+
+// Inter-bot UART1
+#define INTERBOT_UART_RX_GPIO   4
+#define INTERBOT_UART_TX_GPIO   5
+
+// Inter-bot ESP-NOW
+#define INTERBOT_WIFI_CHANNEL   36
 
 // RGB status LED
 #define RGB_LED_RED_GPIO        27

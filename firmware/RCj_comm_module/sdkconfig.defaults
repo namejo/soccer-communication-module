@@ -15,12 +15,24 @@ CONFIG_BT_NIMBLE_GATT_SERVER=y
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
 
-# --- Released-build UART cleanliness ---
-# Robots may read PLAY/STOP from the UART0 line (U3 TX_OUT). Keep that line clean:
-# silence bootloader + ESP-IDF + Arduino-HAL logs so only the Arduino Serial output
-# ("PLAY"/"STOP") appears. Serial maps to UART0 because ARDUINO_USB_CDC_ON_BOOT is unset
-# (do NOT enable it for release). For development logging over USB-C, layer sdkconfig.debug
-# on top (see docs/ai/07_build_release_and_flasher.md).
+# --- Partition table ---
+# ESP-NOW support pulls in Wi-Fi, so the firmware no longer fits the default
+# 1 MB factory partition. The current ESP32-C5 module has 8 MB flash; keep a
+# single large factory app slot because this project does not use OTA slots yet.
+# CONFIG_PARTITION_TABLE_SINGLE_APP is not set
+# CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE is not set
+# CONFIG_PARTITION_TABLE_TWO_OTA is not set
+# CONFIG_PARTITION_TABLE_TWO_OTA_LARGE is not set
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# --- Released-build serial cleanliness ---
+# Robots may read binary SIBCP frames from UART0 TX, UART1, or USB-C. Keep these lines clean:
+# silence bootloader + ESP-IDF + Arduino-HAL logs so only SIBCP output frames appear.
+# Serial maps to UART0 because ARDUINO_USB_CDC_ON_BOOT is unset (do NOT enable it for
+# release). For development logging over USB-C, layer sdkconfig.debug on top
+# (see docs/ai/07_build_release_and_flasher.md).
 CONFIG_ESP_CONSOLE_UART_DEFAULT=y
 CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y
 CONFIG_LOG_DEFAULT_LEVEL_NONE=y

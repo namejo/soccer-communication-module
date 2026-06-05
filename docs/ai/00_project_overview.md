@@ -16,6 +16,7 @@ Core responsibilities:
 4. Show the current state on a 128×64 OLED, including a QR code of the BLE MAC address
    while waiting for a connection, and a penalty/halftime countdown.
 5. Offer local buttons for disconnect and a self-penalty request back to the app.
+6. Optionally bridge custom robot-to-robot SIBCP frames between UART1 or USB-C and ESP-NOW.
 
 ## Match-level behavior
 
@@ -52,6 +53,7 @@ ble_processing.cpp  ble_msg_processing()  ── dispatch by msg_id ──►
       ▼
 state_machine.cpp  stm_update()
       ├─ update_output_satet(): OUTPUT1/OUTPUT2 GPIO HIGH (play) or LOW (stop)
+      ├─ interbot_comm_send_system_game_state(): SIBCP /system/game_state
       ├─ status_led_set_play(): dimmed RGB LED green for play, red for stopped output
       ├─ buzzer_notify_state_change(): short IO26 beep for match-state changes
       └─ display_screen_*(): render current screen
@@ -59,6 +61,22 @@ state_machine.cpp  stm_update()
       ▼
 Robot reads OUT1/OUT2 (3.3 V = GO, 0 V = STOP)
 ```
+
+Optional inter-bot flow:
+
+```
+Robot MCU
+      │  SIBCP frame over UART1 (IO4/IO5, 460800 baud) or USB-C
+      ▼
+interbot_comm.cpp  ── validates SIBCP magic/length/CRC ──► ESP-NOW broadcast, 5 GHz ch. 36
+      │
+      ▼
+Peer module validates received SIBCP frame and writes it to UART1, USB-C, and UART0 TX
+```
+
+The module acts as a transport bridge. Topic handling, service request/response matching,
+and discovery semantics belong to the robot MCU protocol implementation. See
+[12_sibcp_interbot_comm.md](12_sibcp_interbot_comm.md).
 
 The reverse direction (module → app) carries: `BLE_MSG_PING` echo, `BLE_MSG_FW_VERSION`
 reply, `BLE_MSG_ASK_FOR_PENALTY` (self-penalty request), and `BLE_MSG_DISCONNECT`
@@ -73,15 +91,13 @@ notification before disconnecting. See [03_ble_protocol.md](03_ble_protocol.md).
 | Power | BAT+ / GND (5.3–25 V) or 3V3 | Same + **supercapacitor backup**, ON/OFF slide switch |
 | Inputs | Buttons (2 used in firmware) | **3 buttons** (silk "1", "2", "3"/"MF") |
 | Feedback | OLED display | OLED + **RGB LED** + **buzzer** |
-| Robot I/O | RX/TX UART, A0/A1 channels, LOGV, OUT1/OUT2 | OUT1/OUT2 confirmed in firmware; UART/RX-TX status **to verify** |
+| Robot I/O | RX/TX UART, A0/A1 channels, LOGV, OUT1/OUT2 | OUT1/OUT2 plus SIBCP over UART1 and USB-C; UART0 TX mirrors SIBCP output frames |
 
-> The old/UART-based robot-to-robot communication (RX, TX, LOGV, A0/A1 channels) is
-> described only in the public README/PDF. The **current firmware does not implement any
-> RX/TX robot-to-robot UART protocol** — `Serial` is used at 115200 baud only for debug
-> prints (`"PLAY"`/`"STOP"`) and as a side effect of `Serial.begin()`. The V7 schematic
-> shows the board keeps UART headers — UART0 (RX0/TX0, primary/flashing) and UART1
-> (RX1=IO4, TX1=IO5, secondary to robot) on the U3 connector — but the legacy LOGV/A0/A1
-> channel scheme is gone. See [05_hardware_mapping.md](05_hardware_mapping.md).
+> The old 2024 UART channel-select scheme (`LOGV`, `A0`, `A1`) is gone on V7 hardware.
+> UART1 (`RX1=IO4`, `TX1=IO5`) and USB-C are now SIBCP host transports bridged over
+> 5 GHz ESP-NOW. UART0 TX is a transmit-only SIBCP output mirror. See
+> [05_hardware_mapping.md](05_hardware_mapping.md) and
+> [12_sibcp_interbot_comm.md](12_sibcp_interbot_comm.md).
 
 ## Current compatibility mode
 
@@ -93,6 +109,8 @@ delta vs the old code path that is implemented is:
 - BLE switched to NimBLE with tuned connection parameters and write-without-response
   (commit `ca23261` "Improve BLE command latency and resilience").
 - A self-penalty request via double-press (commit `e423b0d`).
+- System `/system/game_state` SIBCP topic over UART1/USB-C/UART0 TX, match-state buzzer
+  feedback, dimmed RGB PLAY/STOP status, and experimental SIBCP inter-bot bridging.
 
 ## Planned hardware features
 
@@ -108,9 +126,6 @@ These are on the board (confirmed in the V7 schematic); pins are known (see
   (`BUTTON_GPIO`=IO10/B1, `BUTTON2_GPIO`=IO7/B2).
 - **Slide power switch** (U6) — enables/disables supercap backup; firmware-invisible.
 
-Do not implement these until the schematic confirms pins. See
-[10_future_change_plan.md](10_future_change_plan.md).
-
 ## Source files reviewed
 
 `README.md`, `firmware/RCj_comm_module/*` (all `.ino/.cpp/.h`), `main/app_main.cpp`,
@@ -118,7 +133,6 @@ Do not implement these until the schematic confirms pins. See
 
 ## Open questions
 
-- Does the new board still expose a robot-to-robot UART (RX/TX/LOGV/A0/A1) header?
 - Must old-module BLE compatibility be preserved bit-for-bit with the existing app?
 - Is the supercapacitor purely hardware ride-through, or should firmware detect a power dip?
 </content>

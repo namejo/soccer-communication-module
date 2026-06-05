@@ -9,6 +9,8 @@
 | Definitions | `definitions.h` | Versions, BLE/UART constants, GPIO pin map |
 | BLE transport | `ble.cpp` / `ble.h` | NimBLE server, NUS UUIDs, RX/TX characteristics, callbacks, send/disconnect |
 | BLE processing | `ble_processing.cpp` / `ble_processing.h` | `ble_msg_t`, `ble_msg_id` enum, RTOS queue, command dispatch |
+| Inter-bot bridge | `interbot_comm.cpp` / `interbot_comm.h` | UART1 + USB-C SIBCP parsers, ESP-NOW setup, host <-> ESP-NOW forwarding, BLE debug logs |
+| SIBCP protocol | `sibcp_protocol.cpp` / `sibcp_protocol.h` | Frame constants, CRC-16/CCITT, streaming parser, frame builder, packet metadata |
 | State machine | `state_machine.cpp` / `state_machine.h` | `stm_states`, output-pin control, timer |
 | Display | `display.cpp` / `display.h` | SSD1306 rendering per state |
 | Status LED | `status_led.cpp` / `status_led.h` | 50% PWM RGB LED output: green for PLAY, red for stopped output |
@@ -22,14 +24,14 @@ There are **two** entry points that do the same four things in the same order:
 
 `RCj_comm_module.ino` (Arduino IDE):
 ```c
-void setup() { Serial.begin(UART_SPEED); display_init(); module_init_gpios(); stm_init(); ble_start_server(); }
-void loop()  { ble_msg_processing(); stm_update(); check_disconnect_button(); check_penalty_button(); }
+void setup() { Serial.begin(UART_SPEED); serial_status_init(); display_init(); module_init_gpios(); stm_init(); ble_start_server(); interbot_comm_init(); }
+void loop()  { ble_msg_processing(); interbot_comm_update(); stm_update(); check_disconnect_button(); check_penalty_button(); }
 ```
 
 `main/app_main.cpp` (ESP-IDF — what CI actually builds):
 ```c
-static void module_setup() { Serial.begin(UART_SPEED); display_init(); module_init_gpios(); stm_init(); ble_start_server(); }
-static void module_loop()  { ble_msg_processing(); stm_update(); check_disconnect_button(); check_penalty_button(); }
+static void module_setup() { Serial.begin(UART_SPEED); serial_status_init(); display_init(); module_init_gpios(); stm_init(); ble_start_server(); interbot_comm_init(); }
+static void module_loop()  { ble_msg_processing(); interbot_comm_update(); stm_update(); check_disconnect_button(); check_penalty_button(); }
 extern "C" void app_main(void) { initArduino(); module_setup(); while (true) { module_loop(); delay(1); } }
 ```
 
@@ -39,11 +41,20 @@ extern "C" void app_main(void) { initArduino(); module_setup(); while (true) { m
 
 ## Initialization sequence
 
-1. `Serial.begin(UART_SPEED)` — `UART_SPEED = 115200`. Used for debug prints only.
-2. `display_init()` — `SSD1306 display(0x3c, I2C_SDA_GPIO, I2C_SCL_GPIO)`, `display.init()`.
-3. `module_init_gpios()` — `OUTPUT1_GPIO`/`OUTPUT2_GPIO` as `OUTPUT`; `BUTTON_GPIO`/`BUTTON2_GPIO` as `INPUT` (no explicit pull configured — see hardware doc); initializes the RGB status LED and IO26 passive buzzer.
-4. `stm_init()` — current state stays `STM_INIT`; sets timer to `660000 ms` (see below / [04](04_state_machine.md)).
-5. `ble_start_server()` — creates the message queue, BLE device, server, service, RX/TX characteristics, and starts advertising.
+1. `Serial.begin(UART_SPEED)` — `UART_SPEED = 115200`; UART0 is a transmit-only SIBCP
+   output mirror in release builds.
+2. `serial_status_init()` — installs the USB Serial/JTAG driver used by the USB-C SIBCP
+   transport.
+3. `ble_start_server()` — creates the message queue, BLE device, server, service, RX/TX/log
+   characteristics, and starts advertising.
+4. `stm_init()` — current state stays `STM_INIT`; sets timer to `660000 ms` (see below /
+   [04](04_state_machine.md)).
+5. `display_init()` — `SSD1306 display(0x3c, I2C_SDA_GPIO, I2C_SCL_GPIO)`, `display.init()`.
+6. `module_init_gpios()` — `OUTPUT1_GPIO`/`OUTPUT2_GPIO` as `OUTPUT`; `BUTTON_GPIO`/
+   `BUTTON2_GPIO` as `INPUT` (no explicit pull configured — see hardware doc).
+7. `buzzer_init()` and `status_led_init()` — initialize IO26 buzzer and RGB LED PWM.
+8. `interbot_comm_init()` — starts UART1 on IO4/IO5 at 460800 baud, configures 5 GHz
+   ESP-NOW on channel 36, and creates bounded radio/log queues.
 
 ## Main loop behavior
 
@@ -51,12 +62,16 @@ extern "C" void app_main(void) { initArduino(); module_setup(); while (true) { m
 
 1. **`ble_msg_processing()`** — pops at most **one** message from the queue (`xQueueReceive`
    with timeout `0`) and dispatches it. Non-blocking; returns immediately if empty.
-2. **`stm_update()`** — runs the current state's handler and, on a state change, updates
-   the output pins, mirrors the status to the RGB LED, and starts a short buzzer tone for
-   match states. It also services the non-blocking buzzer timeout.
-3. **`check_disconnect_button()`** — long-press (`DISCONNECT_HOLD_TIME = 5000 ms`) on
+2. **`interbot_comm_update()`** — drains valid SIBCP frames from UART1 and USB-C to ESP-NOW,
+   drains received ESP-NOW frames to UART1/USB-C/UART0 TX, and emits queued BLE debug log
+   notifications.
+3. **`stm_update()`** — runs the current state's handler and, on a state change, updates
+   the output pins, emits the `/system/game_state` SIBCP topic, mirrors the status to the
+   RGB LED, and starts a short buzzer tone for match states. It also services the
+   non-blocking buzzer timeout.
+4. **`check_disconnect_button()`** — long-press (`DISCONNECT_HOLD_TIME = 5000 ms`) on
    `BUTTON_GPIO` triggers `ble_disconnect()`.
-4. **`check_penalty_button()`** — double-press on `BUTTON_GPIO` **or** `BUTTON2_GPIO`
+5. **`check_penalty_button()`** — double-press on `BUTTON_GPIO` **or** `BUTTON2_GPIO`
    triggers `ble_msg_procesing_ask_for_penalty()`.
 
 There is **no explicit task split**: everything runs in the single `app_main`/loop thread.
@@ -65,7 +80,8 @@ path short.
 
 ## Concurrency / FreeRTOS
 
-The only cross-context shared structure is the BLE message queue.
+The cross-context shared structures are the BLE message queue and the inter-bot radio/log
+queues.
 
 - Created in `ble_msg_processing_init()`:
   `xQueueCreate(BLE_QUEUE_MAX_SIZE /*16*/, sizeof(ble_msg_t))`.
@@ -85,6 +101,35 @@ from both `ble_processing` (loop) and `MyServerCallbacks::onDisconnect` (BLE con
 a benign data race on `current_state`/`state_changed` that has not caused observed issues
 but is worth noting for any future hardening.
 
+Inter-bot queues:
+
+- `radio_rx_queue`: ESP-NOW receive callback -> main loop. It holds validated raw SIBCP
+  frames received over radio before they are written to UART1, USB-C, and UART0 TX.
+- `log_queue`: UART/radio forwarding paths -> main loop BLE log sender. It is bounded and
+  drops the oldest log entry when full, so debug logging cannot grow without limit.
+
+## SIBCP inter-bot bridge
+
+- UART1 uses `HardwareSerial(1)` on `INTERBOT_UART_RX_GPIO=4` and
+  `INTERBOT_UART_TX_GPIO=5`, at `INTERBOT_UART_SPEED=460800`.
+- USB-C uses the ESP32-C5 USB Serial/JTAG driver installed by `serial_status_init()`.
+  The host commonly sees this as `/dev/ttyACM0`; the baud setting is ignored by USB.
+- UART0 TX (`Serial.write`) mirrors outbound SIBCP frames at `UART_SPEED=115200` but is not
+  parsed as an input transport.
+- ESP-NOW runs in Wi-Fi station mode, 5 GHz only, channel `INTERBOT_WIFI_CHANNEL=36`,
+  with the broadcast peer `ff:ff:ff:ff:ff:ff`.
+- `sibcp_parser_push_byte()` accepts only complete frames with magic `0xAA 0x55`, payload
+  length <= 240 bytes, and a valid CRC-16/CCITT.
+- UART1 -> ESP-NOW, USB-C -> ESP-NOW, and ESP-NOW -> host outputs all revalidate frames.
+  Invalid frames are dropped.
+- Local referee state changes are emitted as `SIBCP_TOPIC_SYSTEM_GAME_STATE` (`0xF0`) with
+  payload `{state:uint8, robot_play:uint8_bool}`.
+- The module is a transport bridge only. Robot MCU firmware owns topic/service semantics,
+  transaction matching, service discovery responses, retries, and duplicate handling.
+
+See [12_sibcp_interbot_comm.md](12_sibcp_interbot_comm.md) for the frame format and
+limitations.
+
 ## Important global state
 
 | Variable | File | Meaning |
@@ -95,41 +140,43 @@ but is worth noting for any future hardening.
 | `timer_stop` | `state_machine.cpp` | `millis()` deadline for penalty/halftime countdown |
 | `buzzer_active`, `buzzer_stop_time` | `buzzer.cpp` | Non-blocking buzzer timeout state |
 | `device_connected` | `ble.cpp` | BLE connection state |
+| `interbot_ready` | `interbot_comm.cpp` | ESP-NOW setup status; UART parsing still runs if false |
 | `module_indicator` | `functions.cpp` | 2-char team/robot label (default `"--"`) |
 | `my_score`, `opponent_score` | `functions.cpp` | Scoreboard values |
 
-## Legacy UART / Serial behavior
+## UART / Serial behavior
 
-- `Serial.begin(115200)` is called at startup.
-- `update_output_satet()` in `state_machine.cpp` prints `"PLAY"` / `"STOP"` through
-  `serial_status_println()` on every output change. That helper mirrors each line to
-  Arduino `Serial` (UART0 on U3) and the ESP32-C5 USB Serial/JTAG port (USB-C, typically
-  `/dev/ttyACM*` on Linux). **These are the only active serial status prints in the firmware**
-  and double as status channels for robots or Raspberry Pi hosts that read serial instead
-  of the OUT pins.
+- `Serial.begin(115200)` is called at startup. `Serial.write()` is used only as the UART0 TX
+  output mirror for binary SIBCP frames.
+- `serial_status_init()` installs the USB Serial/JTAG driver. `interbot_comm_update()` reads
+  valid SIBCP frames from USB-C and forwards them to ESP-NOW.
+- `update_output_satet()` in `state_machine.cpp` now emits the reserved system SIBCP topic
+  `/system/game_state` via `interbot_comm_send_system_game_state()`. The payload carries
+  `state` (`INIT`, `DISCONNECTED`, `PLAY`, `STOP`, `DAMAGE`, `HALF_TIME`, `GAME_OVER`) and
+  `robot_play` (the direct replacement for the old text `PLAY`/`STOP` output).
 - All other debug prints are **already commented out**: `ble.cpp:45,64,147,149`,
   `ble_processing.cpp:71`, `functions.cpp:107,121`. (Verified 2026-05-31.) The vendored
   `libraries/**/examples/*.ino` prints are not compiled; the OLED lib's `"[deprecated]"`
   prints live in `drawLogBuffer()`/`setLogBuffer()`, which the firmware never calls.
-- **No robot-to-robot UART protocol** (RX/TX framing, channel select) exists in the current
-  firmware, despite the public README describing RX/TX/LOGV/A0/A1 on the 2024 board.
+- UART1 and USB-C are full SIBCP input/output transports. UART0 TX is output-only. The old
+  2024 LOGV/A0/A1 channel-select scheme is not present on V7 hardware or in firmware.
 
 ### UART output cleanliness (for robots that read serial, not pins)
 
 Verified against the generated build config (`build/config/sdkconfig.h`, 2026-05-31):
 
 1. **✅ `Serial` routes to UART0 (the U3 `TX_OUT` the robot reads).** `ARDUINO_USB_CDC_ON_BOOT`
-   is **not** defined, so `Serial` = `HardwareSerial(0)` = UART0; and `CONFIG_ESP_CONSOLE_UART_DEFAULT=y`
-   with `CONFIG_ESP_CONSOLE_UART_NUM=0`. So `PLAY`/`STOP` do reach the robot's UART pins.
-   (`ARDUHAL` log level is already ERROR-only, so the Arduino layer adds no chatter.)
+   is **not** defined, so `Serial` = `HardwareSerial(0)` = UART0; and
+   `CONFIG_ESP_CONSOLE_UART_DEFAULT=y` with `CONFIG_ESP_CONSOLE_UART_NUM=0`. SIBCP output
+   frames reach UART0 TX as a binary mirror. (`ARDUHAL` log level is off in release.)
 2. **✅ Boot log silenced for release (fixed 2026-05-31).** `sdkconfig.defaults` now sets
    `CONFIG_BOOTLOADER_LOG_LEVEL_NONE=y`, `CONFIG_LOG_DEFAULT_LEVEL_NONE=y`,
    `CONFIG_ARDUHAL_LOG_DEFAULT_LEVEL_NONE=y`, and pins the console to UART
    (`CONFIG_ESP_CONSOLE_UART_DEFAULT=y`). So a release build's UART0 line carries only the
-   Arduino `Serial` output (`PLAY`/`STOP`) — those are plain UART writes, not log macros, so
-   they survive. The ROM's very first line (`ESP-ROM:…`, reset cause) is emitted before
-   sdkconfig applies and can only be removed via eFuse — **accepted as-is for now**
-   (maintainer decision 2026-05-31): it's one short burst once at power-on, not during play.
+   binary SIBCP mirror after boot. The ROM's very first line (`ESP-ROM:...`, reset cause) is
+   emitted before sdkconfig applies and can only be removed via eFuse — **accepted as-is for
+   now** (maintainer decision 2026-05-31): it's one short burst once at power-on, not during
+   play.
 
 ### Build flavors: release (UART, clean) vs debug (USB, verbose)
 
@@ -138,20 +185,21 @@ Verified against the generated build config (`build/config/sdkconfig.h`, 2026-05
 | Config | `sdkconfig.defaults` only | `sdkconfig.defaults` + `sdkconfig.debug` |
 | IDF/bootloader logs | OFF (`*_LOG_LEVEL_NONE`) | INFO |
 | IDF console route | UART0 | **USB-C** (`CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG`) |
-| Arduino `Serial` (`PLAY`/`STOP`) | UART0; mirrored to USB-C by `serial_status` | UART0; mirrored to USB-C by `serial_status` |
+| SIBCP host transports | UART1 IO4/IO5 + USB-C input/output; UART0 TX output mirror | UART1 stays clean; USB-C has debug logs mixed with SIBCP |
+| System game-state output | `/system/game_state` SIBCP topic on UART1, USB-C, UART0 TX | same, but USB-C is not clean because debug logs are enabled |
 | Built by | CI on every tag | local dev only |
 
 Debug build command:
 `idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.debug" build flash monitor`
-(later defaults file wins on conflicting choices). This keeps the UART0 line free for the
-robot while a developer watches logs over USB-C. `Serial`'s `PLAY`/`STOP` stays on UART0 in
-both flavors, and `serial_status` mirrors those same lines to USB Serial/JTAG for USB hosts.
+(later defaults file wins on conflicting choices). This keeps UART0 and UART1 usable for the
+robot while a developer watches logs over USB-C, but USB-C should not be treated as a clean
+SIBCP transport in that debug flavor.
 
 ## Source files reviewed
 
 `RCj_comm_module.ino`, `main/app_main.cpp`, `definitions.h`, `ble.cpp/.h`,
-`ble_processing.cpp/.h`, `state_machine.cpp/.h`, `display.cpp/.h`, `functions.cpp/.h`,
-git commit `ca23261`.
+`ble_processing.cpp/.h`, `interbot_comm.cpp/.h`, `sibcp_protocol.cpp/.h`,
+`state_machine.cpp/.h`, `display.cpp/.h`, `functions.cpp/.h`, git commit `ca23261`.
 
 ## Open questions
 

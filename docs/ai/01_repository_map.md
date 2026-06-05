@@ -17,6 +17,7 @@
 │   └── firmware-release.yml           # CI (master): build C5 + GitHub Release + Pages flasher
 │                                       #   (legacy/esp32-c6 also has firmware-release-legacy-c6.yml)
 ├── firmware/RCj_comm_module/          # The firmware (see below)
+├── python/sibcp/                      # Optional Python client library for SIBCP topics/services
 ├── web/flasher/                       # Static Web-Serial flasher site (deployed to Pages)
 ├── tools/
 │   └── prepare_firmware_release.py    # Packages build output + flasher manifest/version
@@ -40,6 +41,10 @@ firmware/RCj_comm_module/
 ├── definitions.h           # FW version, BLE/UART constants, GPIO pin map (C5 only; C6 map on legacy branch)
 ├── ble.cpp / ble.h         # BLE server, NUS UUIDs, RX/TX characteristics, server callbacks
 ├── ble_processing.cpp/.h   # ble_msg_t struct, ble_msg_id enum, RTOS queue, command dispatch
+├── interbot_comm.cpp/.h    # SIBCP UART1 <-> ESP-NOW bridge
+├── sibcp_protocol.cpp/.h   # SIBCP parser, CRC-16/CCITT validation, packet metadata
+├── buzzer.cpp/.h           # IO26 passive buzzer feedback
+├── status_led.cpp/.h       # RGB LED PWM status feedback
 ├── state_machine.cpp/.h    # stm_states enum, output-pin control, timers
 ├── display.cpp / display.h # SSD1306 OLED screen rendering (per state)
 ├── functions.cpp/.h        # MAC→string, score/indicator state, GPIO init, button handling
@@ -47,6 +52,7 @@ firmware/RCj_comm_module/
 ├── images.h                # XBM logo (RC_logo) for boot screen
 ├── CMakeLists.txt          # ESP-IDF top project file (sets IDF_TARGET=esp32c5)
 ├── sdkconfig.defaults      # ESP-IDF config: target C5, NimBLE peripheral, FreeRTOS 1000 Hz
+├── partitions.csv          # Custom 8 MB-flash partition table with a 6 MB factory app slot
 ├── .gitignore              # ignores build/, managed_components/, sdkconfig, .vscode/, etc.
 ├── main/
 │   ├── app_main.cpp        # ESP-IDF entry point (app_main → initArduino + setup/loop)
@@ -64,7 +70,8 @@ firmware/RCj_comm_module/
 
 | Category | Paths |
 |----------|-------|
-| **Firmware source (edit these)** | `firmware/RCj_comm_module/*.cpp`, `*.h`, `*.ino`, `main/app_main.cpp`, `main/CMakeLists.txt`, `CMakeLists.txt`, `sdkconfig.defaults`, `main/idf_component.yml` |
+| **Firmware source (edit these)** | `firmware/RCj_comm_module/*.cpp`, `*.h`, `*.ino`, `main/app_main.cpp`, `main/CMakeLists.txt`, `CMakeLists.txt`, `sdkconfig.defaults`, `partitions.csv`, `main/idf_component.yml` |
+| **Python SIBCP client** | `python/sibcp/src/sibcp/**`, `python/sibcp/examples/**`, `python/sibcp/tests/**` |
 | **Vendored libs (avoid editing)** | `firmware/RCj_comm_module/libraries/**` (third-party OLED + QR code) |
 | **Tooling** | `tools/prepare_firmware_release.py`, `.github/workflows/firmware-release.yml` |
 | **Web flasher source** | `web/flasher/{index.html,app.js,styles.css,.nojekyll}` |

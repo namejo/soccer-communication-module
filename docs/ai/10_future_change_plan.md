@@ -23,34 +23,44 @@ schematic is provided. Each stage is independently buildable, testable, and reve
 - **Remaining before Stage 3+:** decide whether to keep or delete the commented C6 block in
   `definitions.h`.
 
-## Stage 2 — Hardware abstraction / definitions
+## Stage 2 — Hardware definitions — ✅ PARTLY DONE
 
-- Add the confirmed pins to `definitions.h` (e.g. `RGB_LED_GPIO`, `BUZZER_GPIO`,
-  `BUTTON3_GPIO`, `VIN_SENSE_GPIO`) as **defines only**, plus `pinMode` setup in
-  `module_init_gpios()` — no behavior yet.
+- Confirmed pins were added to `definitions.h` for RGB LED, buzzer, UART1, and ESP-NOW
+  channel. B3/IO6 and any future VIN-sense signal remain undefined until needed.
 - Consider introducing a thin `hardware.h`/HAL boundary so feature modules don't sprinkle
   raw GPIO numbers.
-- **Test:** builds clean; existing behavior unchanged (outputs/display/BLE identical).
+- **Test:** builds clean.
 - **Rollback:** revert the definitions/pinMode additions.
 
-## Stage 3 — RGB LED driver
+## Stage 3 — RGB LED driver — ✅ DONE for basic PLAY/STOP
 
-- Add `rgb_led.cpp/.h` (or extend a `feedback` module). Pick the driver per LED type
-  (addressable WS2812 via RMT, or 3× PWM channels for a discrete RGB).
-- Drive it from state transitions in `state_machine.cpp` (hook into the existing
-  `state_changed` path), with a confirmed color map (replace the proposed table in
-  [06](06_display_and_user_feedback.md) with the agreed one).
-- **Test:** observe color per state on hardware; ensure no timing impact on the 1 ms loop.
+- Added `status_led.cpp/.h` using PWM for the discrete RGB LED.
+- Current behavior: 50% green for PLAY / GO, 50% red for stopped robot output, blue off.
+- **Still future:** richer state-specific patterns.
+- **Test:** observed on hardware by maintainer.
 - **Rollback:** compile-time flag (`#define FEATURE_RGB_LED`) to disable.
 
-## Stage 4 — Buzzer driver
+## Stage 4 — Buzzer driver — ✅ DONE for basic state-change beep
 
-- Add `buzzer.cpp/.h`. If passive, use LEDC/`tone`-style PWM; if active, simple on/off.
-- Make beeps **non-blocking** (no `delay()` in the loop — use a millis-based scheduler) to
-  avoid stalling BLE/display.
-- Trigger on events (connect, play, stop, penalty, self-penalty ack) per agreed semantics.
-- **Test:** verify beeps don't delay output-pin updates or BLE processing.
+- Added `buzzer.cpp/.h` for the passive 2.7 kHz buzzer on IO26.
+- Beep is non-blocking and currently triggers on match-state changes.
+- **Still future:** distinct event tones and acknowledgement patterns.
+- **Test:** observed on hardware by maintainer.
 - **Rollback:** `#define FEATURE_BUZZER` guard.
+
+## Stage 4b — SIBCP inter-bot bridge — ✅ FIRST SLICE DONE
+
+- Added UART1/SIBCP parser and ESP-NOW bridge on 5 GHz channel 36.
+- Added USB-C as a SIBCP host transport and replaced plain serial `PLAY`/`STOP` text with
+  the reserved `/system/game_state` topic.
+- Added BLE log notifications for forwarded frames.
+- Added a standalone Python package in `python/sibcp` for path-based topics and services
+  over the binary SIBCP transport.
+- Added custom 6 MB app partition because Wi-Fi/ESP-NOW pushes the image beyond the default
+  1 MB slot.
+- **Still future:** addressing, duplicate filtering, ACK/retry, security, and multi-module
+  scaling.
+- **Test:** clean verification build passed; hardware RF validation still needed.
 
 ## Stage 5 — Define third-button behavior
 
@@ -81,7 +91,7 @@ schematic is provided. Each stage is independently buildable, testable, and reve
 ## Stage 8 — Docs, tests, build/release
 
 - Update `docs/ai/05` (final pin map), `06` (final LED/buzzer maps), `09` (close resolved
-  questions), and the public `README.md`.
+  questions), `12` (SIBCP details), and the public `README.md`.
 - Add/refresh any host-side or on-target smoke tests if introduced.
 - Verify CI build (`idf.py build` via the workflow) and the web flasher still work; tag a new
   `fw-vX.Y` release.
@@ -96,6 +106,7 @@ schematic is provided. Each stage is independently buildable, testable, and reve
 | Wrong pin assumptions | Stage 1 gate; never guess from renders |
 | Hard-to-revert changes | One feature per PR + compile-time `FEATURE_*` guards |
 | C6 vs C5 confusion | Decide target support explicitly in Stage 1 |
+| Inter-bot bridge floods or loops | Add addressing and duplicate filtering before scaling beyond two modules |
 
 ## Source files reviewed
 

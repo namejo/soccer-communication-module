@@ -47,21 +47,22 @@ The app's source code lives in its own repository: **[robocup-junior/soccer-refe
 
 The robot must respond to the start/stop signal for the entire game. Use **one** of the following methods and react whenever the state changes:
 
-| Method         | Pin                            | PLAY / GO        | STOP        |
+| Method         | Pin / port                     | PLAY / GO        | STOP        |
 |----------------|--------------------------------|------------------|-------------|
 | **Output pin** | `OUT1` or `OUT2`               | **3.3 V** (HIGH) | **0 V** (LOW) |
-| **UART**       | `TX0` (UART0 on the U3 header) | sends `PLAY`     | sends `STOP` |
-| **USB serial** | USB-C                          | sends `PLAY`     | sends `STOP` |
+| **UART1**      | `RX1`/`TX1` on the U3 header   | SIBCP `/system/game_state`, `robot_play=true` | SIBCP `/system/game_state`, `robot_play=false` |
+| **USB serial** | USB-C                          | SIBCP `/system/game_state`, `robot_play=true` | SIBCP `/system/game_state`, `robot_play=false` |
+| **UART0 TX**   | `TX0` on the U3 header         | mirrors SIBCP output frames, transmit-only | mirrors SIBCP output frames, transmit-only |
 
 Both outputs carry the same 3.3 V logic-level signal. For 5 V robot inputs, add a level shifter before the robot. Always share **GND** with the robot controller — never connect VIN to a robot GPIO or to the 3.3 V pin.
 
-For a Raspberry Pi or another USB host, connect the module's USB-C port to the host's USB-A port. The ESP32-C5 enumerates as a serial device, typically `/dev/ttyACM0`, and prints one line (`PLAY` or `STOP`) whenever the referee app changes the match state.
+For a Raspberry Pi or another USB host, connect the module's USB-C port to the host's USB-A port. The ESP32-C5 enumerates as a serial device, typically `/dev/ttyACM0`. USB-C carries binary SIBCP frames, including the reserved system topic `/system/game_state` whenever the referee app changes the match state.
 
-On Linux, you can check the USB serial output with:
+Install the Python helper and monitor the system state with:
 
 ```sh
-stty -F /dev/ttyACM0 115200 raw -echo
-cat /dev/ttyACM0
+python -m pip install -e python/sibcp[serial]
+python python/sibcp/examples/monitor_game_state.py --port /dev/ttyACM0
 ```
 
 The onboard buzzer gives a short confirmation beep whenever the referee app changes the match state.
@@ -99,7 +100,33 @@ The OLED shows a **countdown** for the duration of a robot's penalty. Teams may 
 
 ## 🤖 Robot-to-robot communication
 
-Direct robot-to-robot communication is **planned for a future firmware release**. The current firmware relays the referee's match state (start/stop, penalty, half-time, game over) only — via the output pins or UART described above.
+The ESP32-C5 firmware includes an **experimental inter-bot bridge** for teams that want two modules to exchange custom robot data. The robot controller talks to its local module over **UART1** (`RX1`/`TX1` on the U3 header, 460800 baud) or USB-C (`/dev/ttyACM0` on many Linux hosts). Valid framed packets are forwarded over **5 GHz ESP-NOW** on channel 36 to the other module, then written back out on that module's UART1, USB-C, and UART0 TX mirror.
+
+Firmware-level framing uses SIBCP:
+
+```text
+AA 55 | type | transaction_id | identifier_id | payload_len | payload | crc16
+```
+
+The module validates the magic bytes, payload length, and CRC-16/CCITT before forwarding. The robot controller remains responsible for interpreting topics, service requests, service responses, and discovery payloads. A BLE log characteristic reports forwarded frames for debugging.
+
+A small Python client library is available in [`python/sibcp`](python/sibcp/) for Raspberry Pi
+or other Python-based robot controllers. It lets robot code register compact path-based topics
+and services while keeping the wire format binary:
+
+```python
+from sibcp import Bool, SerialTransport, SibcpNode
+
+node = SibcpNode(SerialTransport("/dev/ttyAMA0", baudrate=460800))
+node.service("/ball_in_your_vision", service_id=1, response=Bool)
+
+@node.on_service("/ball_in_your_vision")
+def handle_ball_request(_request):
+    return camera.sees_ball()
+```
+
+Both robots must use the same path-to-ID mapping, for example
+`/ball_in_your_vision -> service_id=1`.
 
 > The old 2024 board's channel-select `A0`/`A1` pins and the `LOGV` UART-level pin are **not** present on this hardware.
 
@@ -146,7 +173,7 @@ Check the [open issues](https://github.com/robocup-junior/soccer-communication-m
 
 ## 🔭 Currently working on
 
-- Robot-to-robot communication
+- Hardening robot-to-robot communication after real match testing
 - Additional RGB LED feedback patterns
 
 ## 🏆 Hall of fame

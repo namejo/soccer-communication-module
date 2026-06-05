@@ -25,7 +25,8 @@ Implemented in `state_machine.cpp` / `state_machine.h`. The active state is a si
 `state_changed` is true**:
 
 ```c
-robot_play ? (OUT1=HIGH, OUT2=HIGH, Serial "PLAY") : (OUT1=LOW, OUT2=LOW, Serial "STOP")
+robot_play ? (OUT1=HIGH, OUT2=HIGH) : (OUT1=LOW, OUT2=LOW)
+emit SIBCP TOPIC /system/game_state with {state, robot_play}
 ```
 
 `robot_play` is set per state handler: `true` only in `state_play()`; `false` in

@@ -5,6 +5,7 @@
 #include "state_machine.h"
 #include "ble_processing.h"
 #include "display.h"
+#include "interbot_comm.h"
 #include "serial_status.h"
 
 void setup() {
@@ -19,12 +20,15 @@ void setup() {
     stm_init();   
 
     ble_start_server();
+    interbot_comm_init();
 
 }
 
 void loop() {
 
     ble_msg_processing();
+
+    interbot_comm_update();
 
     stm_update();
 

@@ -17,16 +17,32 @@ the **CI/release build uses the ESP-IDF path** (`main/app_main.cpp`).
 | FreeRTOS tick | 1000 Hz | `sdkconfig.defaults` (`CONFIG_FREERTOS_HZ=1000`) |
 | Autostart Arduino | **off** (`CONFIG_AUTOSTART_ARDUINO=n`) — `app_main` calls `initArduino()` manually | `sdkconfig.defaults` |
 | Flash | **8 MB**, mode `dio`, freq `80m` | `sdkconfig.defaults` (`CONFIG_ESPTOOLPY_FLASHSIZE_8MB`), `build/flasher_args.json` |
+| Partition table | Custom single factory app slot, 6 MB | `partitions.csv`, selected by `sdkconfig.defaults` |
 
 ### ESP-IDF component layout
 
 `main/CMakeLists.txt` registers everything as the single `main` component:
-- App sources: `app_main.cpp` + `../ble.cpp`, `../ble_processing.cpp`, `../display.cpp`,
-  `../functions.cpp`, `../state_machine.cpp`.
+- App sources: `app_main.cpp` + `../ble.cpp`, `../ble_processing.cpp`, `../buzzer.cpp`,
+  `../display.cpp`, `../functions.cpp`, `../interbot_comm.cpp`, `../serial_status.cpp`,
+  `../sibcp_protocol.cpp`, `../status_led.cpp`, `../state_machine.cpp`.
 - Vendored libs compiled in: ThingPulse OLED (`OLEDDisplay*.cpp`), `QRcodeDisplay`
   (`frame-v1..v10.c`, `qrcodedisplay.cpp`, `qrencode.c`), `QRcodeOled` (`qrcodeoled.cpp`).
-- `REQUIRES espressif__arduino-esp32`.
+- `REQUIRES espressif__arduino-esp32`, `esp_wifi`, `esp_driver_usb_serial_jtag`.
 - `-Wno-error=overloaded-virtual` to tolerate the Arduino BLE class hierarchy warnings.
+
+### Partition table
+
+Wi-Fi/ESP-NOW support increases the app image beyond the ESP-IDF default 1 MB factory
+partition. `partitions.csv` keeps the simple no-OTA layout but gives the factory app slot
+6 MB:
+
+```csv
+nvs,      data, nvs,     ,        0x6000,
+phy_init, data, phy,     ,        0x1000,
+factory,  app,  factory, ,        0x600000,
+```
+
+This relies on the confirmed 8 MB flash fitted to the ESP32-C5 module.
 
 ### Local build commands
 
@@ -41,8 +57,10 @@ idf.py -p <PORT> flash monitor
 ### Release vs debug build flavors
 
 `idf.py build` uses `sdkconfig.defaults` (the **release** flavor): all bootloader/ESP-IDF/
-Arduino-HAL logs are OFF and the console is on UART0, so the UART line carries only the
-`PLAY`/`STOP` status output for robots that read serial. **CI always builds this flavor.**
+Arduino-HAL logs are OFF and the console is on UART0, so serial outputs carry only binary
+SIBCP frames for robots that read serial. Referee state changes are emitted as the reserved
+`/system/game_state` topic instead of plain `PLAY`/`STOP` text. **CI always builds this
+flavor.**
 
 For development with logs over the USB-C port, layer the **debug** overlay:
 
@@ -51,17 +69,17 @@ idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.debug" build flash mo
 ```
 
 `sdkconfig.debug` re-enables Info logging and routes the IDF console to USB-Serial-JTAG, so
-logs appear over USB-C while UART0 stays clean. (Delete the generated `sdkconfig` when
-switching flavors so the new defaults take effect.) See
+logs appear over USB-C, which conflicts with using USB-C as a clean SIBCP transport during
+development. UART0 and UART1 stay clean. (Delete the generated `sdkconfig` when switching
+flavors so the new defaults take effect.) See
 [02_firmware_architecture.md](02_firmware_architecture.md#build-flavors-release-uart-clean-vs-debug-usb-verbose).
 
 Arduino-IDE alternative: open `RCj_comm_module.ino`, select an ESP32-C5 board, ensure the
 bundled `libraries/` are on the path. (Less tested; CI does not use this.)
 
-> **Build environment in this checkout:** ESP-IDF was **not available** when this doc was
-> written (`IDF_PATH` empty, no `idf.py` on `PATH`). A previous build output exists under
-> `firmware/RCj_comm_module/build/` and `managed_components/` (both gitignored). A fresh
-> `idf.py build` could not be executed/verified here — see [verification](#verification-status).
+> **Local environment note:** `idf.py` may not be on `PATH` in every shell. In this checkout,
+> the verified local build used the PlatformIO ESP-IDF package and the ESP-IDF Python venv;
+> CI still uses `espressif/esp-idf-ci-action`.
 
 ## GitHub Actions release flow
 
@@ -162,8 +180,12 @@ Flow:
   `sdkconfig.defaults` (log-NONE, 8 MB flash) would regenerate — the VSCode Espressif
   extension also reuses an existing `sdkconfig`, so delete it / "Full Clean" there too.
 - `build/flasher_args.json` now reports `esp32c5`, **8 MB flash** (matching the chip's JEDEC
-  read), `dio`/`80m`, bootloader@`0x2000`, partition-table@`0x8000`, app@`0x10000`. App
-  image is ~0xcbb10 bytes (≈20% free in the 1 MB app partition).
+- **A fresh verification build was run and verified (2026-06-05)** using a separate
+  `build_verify2` directory with the tracked `sdkconfig.defaults`. The generated partition
+  table selected `factory` at `0x10000` with size `0x600000`; app image size was
+  `0x1695c0`, leaving `0x496a40` bytes (76%) free in the app partition.
+- `build/flasher_args.json` reports `esp32c5`, **8 MB flash** (matching the chip's JEDEC
+  read), `dio`/`80m`, bootloader@`0x2000`, partition-table@`0x8000`, app@`0x10000`.
 
 ## Source files reviewed
 

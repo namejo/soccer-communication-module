@@ -9,9 +9,8 @@ The V7/2026 schematic is now in the repo and the pin map is **confirmed**:
   [`ESP32C5_RCJ_modul_hardware_reference.md`](ESP32C5_RCJ_modul_hardware_reference.md).
 
 > ✅ **The firmware (`definitions.h`) matches the V7 hardware for every implemented
-> peripheral** (I2C, the two wired buttons, the two robot outputs, the RGB LED, and the buzzer). The
-> third button and UART1 exist on the board but are **not yet used by firmware** — their
-> confirmed pins are listed below.
+> peripheral** (I2C, the two wired buttons, the two robot outputs, the RGB LED, buzzer, and
+> UART1). The third button exists on the board but is **not yet used by firmware**.
 
 ## Current firmware pin map — ESP32-C5 (active)
 
@@ -23,6 +22,13 @@ The V7/2026 schematic is now in the repo and the pin map is **confirmed**:
 #define BUTTON2_GPIO     7    // secondary button (penalty double-press)
 #define OUTPUT1_GPIO     9    // robot start/stop OUT1 (HIGH=play, LOW=stop)
 #define OUTPUT2_GPIO     8    // robot start/stop OUT2 (mirrors OUT1)
+#define INTERBOT_UART_RX_GPIO   4     // UART1 RX1, SIBCP from robot MCU
+#define INTERBOT_UART_TX_GPIO   5     // UART1 TX1, SIBCP to robot MCU
+#define INTERBOT_WIFI_CHANNEL   36    // 5 GHz ESP-NOW channel
+#define RGB_LED_RED_GPIO        27
+#define RGB_LED_GREEN_GPIO      24
+#define RGB_LED_BLUE_GPIO       23
+#define BUZZER_GPIO             26
 ```
 
 | Function | C5 GPIO | Direction | V7 net / part | Notes |
@@ -31,6 +37,12 @@ The V7/2026 schematic is now in the repo and the pin map is **confirmed**:
 | I2C SCL (OLED) | 3 | — | SCL, H2 hdr | I2C addr `0x3c` ✅ matches HW |
 | OUT1 | 9 | output | OUT1, U3 hdr | robot GO/STOP signal ✅ matches HW (IO9) |
 | OUT2 | 8 | output | OUT2, U3 hdr | duplicate of OUT1 ✅ matches HW (IO8) |
+| UART1 RX | 4 | input | RX1, U3 pin 5 | SIBCP inter-bot bridge from robot MCU |
+| UART1 TX | 5 | output | TX1, U3 pin 6 | SIBCP inter-bot bridge to robot MCU |
+| RGB red | 27 | PWM output | LED1 red via R9 | 50% red when robot output is stopped |
+| RGB green | 24 | PWM output | LED1 green via R8 | 50% green when robot output is PLAY |
+| RGB blue | 23 | PWM output | LED1 blue via R7 | initialized off |
+| Buzzer | 26 | PWM output | Q1 base via R3 | 2.7 kHz tone on match-state changes |
 | BUTTON | 10 | input | **B1 = SW5** | disconnect (5 s hold) **and** penalty (double-press); SW5 is the 4-pin slide/toggle "power/mode" switch |
 | BUTTON2 | 7 | input | **B2 = SW1** | penalty (double-press); SW1 momentary tactile |
 
@@ -83,15 +95,17 @@ compiled. Useful only if a C6 board must be reflashed.
 
 ## UART / serial
 
-- `UART_SPEED = 115200`. `Serial.begin()` at boot; used for `"PLAY"`/`"STOP"` debug prints.
+- `UART_SPEED = 115200`. `Serial.begin()` at boot; UART0 TX mirrors binary SIBCP output
+  frames, including `/system/game_state`.
 - The V7 board exposes **two UARTs** on the U3 6-pin header (2541WV-06P):
   - **UART0** — `RX0`/`TX0` (net `RX_OUT`/`TX_OUT`, U3 pins 3–4). Primary serial, also the
     flashing/boot console.
   - **UART1** — `RX1 = IO4`, `TX1 = IO5` (U3 pins 5–6). Secondary serial to the robot.
 - The 2024 README's RX/TX/LOGV/A0/A1 "channel" scheme is **not** present; the V7 board has
-  plain UART0/UART1 instead. Firmware does **not** use UART1 yet.
+  plain UART0/UART1 instead. UART1 is now used for the experimental SIBCP inter-bot bridge
+  at 460800 baud. UART0 TX is a transmit-only SIBCP mirror for host output frames.
 
-## New V7/2026 hardware — CONFIRMED from schematic (NOT yet in firmware)
+## New V7/2026 hardware — CONFIRMED from schematic
 
 Pins below are from `ESP32C5_RCJ_modul_hardware_reference.md` (read pin-by-pin from U1) and
 `pcb_schematic/SCH_Schematic1_2026-05-31.pdf`. Components seen on the 3D renders
@@ -105,12 +119,12 @@ Pins below are from `ESP32C5_RCJ_modul_hardware_reference.md` (read pin-by-pin f
 | RGB LED part | LED1 `TC5050RGBF08-3CJH-AF53A` | common-cathode, PWM-capable per channel | — |
 | Buzzer | **IO26** (pin 27) → Q1 (BC817-40) base via R3 470 Ω | drive high; **passive 2.7 kHz** → use PWM ~2.7 kHz | implemented for match-state change beeps |
 | Third button **B3** | **IO6** = SW2 | active low, 10 kΩ pull-up (R4) | not wired |
-| UART1 RX / TX | **IO4 / IO5** (U3 pins 5–6) | — | not used |
+| UART1 RX / TX | **IO4 / IO5** (U3 pins 5–6) | 460800 baud UART | SIBCP inter-bot bridge |
 | GPIO28 | **IO28** on H1 header pin 2 | — | exposed to robot; could sense power if external ckt added |
 | Supercapacitor | C1 **15 F**, charge via R14 15 Ω, D3 SS34 | hardware ride-through | no firmware action needed |
 | Power switch | U6 `MSS12C02LS-BB2.0` slide switch | enables/disables supercap backup | hardware-only |
 | Buck converter | U4 `LMR51610XDBVR`, L=22 µH | VIN → 3.3 V | hardware-only |
-| USB-C | USB1, D-=IO13, D+=IO14 (33 Ω series), CC 5.1 kΩ (UFP) | native USB-CDC, flashing + power | flashing path |
+| USB-C | USB1, D-=IO13, D+=IO14 (33 Ω series), CC 5.1 kΩ (UFP) | native USB Serial/JTAG, flashing + power | flashing path and SIBCP host transport |
 
 ## Residual items to verify (low risk; do not block firmware re-pinning)
 
@@ -130,5 +144,5 @@ Pins below are from `ESP32C5_RCJ_modul_hardware_reference.md` (read pin-by-pin f
 
 ## Open questions
 
-- Intended firmware roles for B3 (IO6), the RGB LED, the buzzer, and UART1.
+- Intended firmware role for B3 (IO6).
 </content>

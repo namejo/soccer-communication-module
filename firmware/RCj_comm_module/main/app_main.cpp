@@ -5,6 +5,7 @@
 #include "ble_processing.h"
 #include "display.h"
 #include "functions.h"
+#include "interbot_comm.h"
 #include "serial_status.h"
 #include "state_machine.h"
 
@@ -17,11 +18,13 @@ static void module_setup()
     module_init_gpios();
     stm_init();
     ble_start_server();
+    interbot_comm_init();
 }
 
 static void module_loop()
 {
     ble_msg_processing();
+    interbot_comm_update();
     stm_update();
     check_disconnect_button();
     check_penalty_button();

@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <string.h>
 #include <Arduino.h>
 #include "HardwareSerial.h"
 #include <sys/_stdint.h>
@@ -19,10 +20,12 @@
 #define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E" // UART service UUID
 #define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+#define CHARACTERISTIC_UUID_LOG "6E400004-B5A3-F393-E0A9-E50E24DCCA9E"
 
 static BLEServer *pServer;
 static BLECharacteristic *pRxCharacteristic;
 static BLECharacteristic *pTxCharacteristic;
+static BLECharacteristic *pLogCharacteristic;
 static bool device_connected = false;
 static String receive_data;
 static QueueHandle_t ble_msg_queue;
@@ -121,6 +124,11 @@ int8_t ble_start_server() {
                                             BLECharacteristic::PROPERTY_NOTIFY
                                             );
 
+    pLogCharacteristic = pService->createCharacteristic(
+                                            CHARACTERISTIC_UUID_LOG,
+                                            BLECharacteristic::PROPERTY_NOTIFY
+                                            );
+
     // Start the service
     pService->start();
 
@@ -151,3 +159,13 @@ int8_t ble_send_msg(uint8_t *data, size_t length) {
     return ESP_OK;
 }
 
+int8_t ble_send_log(const char *message) {
+    if (!device_connected || pLogCharacteristic == NULL || message == NULL) {
+        return ESP_OK;
+    }
+
+    pLogCharacteristic->setValue((uint8_t *)message, strlen(message));
+    pLogCharacteristic->notify();
+
+    return ESP_OK;
+}
