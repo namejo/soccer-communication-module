@@ -32,6 +32,8 @@ The current module (board **V7 / 2026**) is built around an **ESP32-C5** and inc
 
 The app connects to the module over BLE and drives the whole match. The interaction pattern:
 
+- On secure firmware builds, the module shows a six-digit BLE pairing PIN on the
+  OLED. Pair the app/phone with that PIN before sending match commands.
 - **Double-click** for actions — e.g. double-click a robot to start/stop it, or to issue a penalty.
 - **Hold** for settings — e.g. hold a robot button for connection settings.
 - **Start/stop** resets all timers and starts/stops all robots at once.

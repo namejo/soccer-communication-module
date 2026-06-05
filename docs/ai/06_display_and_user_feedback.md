@@ -14,7 +14,7 @@ and the `QRcodeOled` library. Fonts are in `fonts.h`; the boot logo (`RC_logo`) 
 | Function | State | Content |
 |----------|-------|---------|
 | `display_screen_init()` | `STM_INIT` | `RC_logo` full-screen XBM + bottom-right `"v <MAJOR>.<MINOR>"` |
-| `display_screen_wait_for_connection()` | `STM_DISCONNECTED` | 64×64 **QR code of the BLE MAC** (left), `"Wait for\nconnection"` text + MAC split over two lines (right) |
+| `display_screen_wait_for_connection()` | `STM_DISCONNECTED` | 64×64 **QR code of BLE MAC + pairing PIN** (left), six-digit BLE PIN + MAC split over two lines (right) |
 | `display_screen_play()` | `STM_PLAY` | `"PLAY"` top; large 2-char `indicator` (split into two glyphs at x=41 and x=85, `DialogInput_bold_50`); `score` at bottom |
 | `display_screen_stop()` | `STM_STOP` | Two filled side bars (`fillRect`) framing the screen; `"STOP"` top; large `indicator`; `score` bottom |
 | `display_screen_damage(time)` | `STM_DAMAGE` | `"PENALTY - <indicator>"` top; large countdown (`Dialog_plain_40`); `score` bottom |
@@ -26,13 +26,15 @@ present but commented out.
 
 ## QR / MAC connection behavior
 
-- On the wait screen, `qrcode.init(64, 64)` then `qrcode.create(mac_string)` renders a QR of
-  the **Bluetooth MAC** (`BLE_MAC_to_string()`), the same value embedded in the advertised
+- On the wait screen, `qrcode.init(64, 64)` then `qrcode.create(...)` renders
+  `<BLE_MAC>|<six_digit_pairing_pin>` when the BLE passkey is available.
+- The **Bluetooth MAC** (`BLE_MAC_to_string()`) is the same value embedded in the advertised
   name `RCJs-m_<MAC>`.
 - The MAC is also printed as text: `mac.substring(0,9)` on line 1, `mac.substring(9)` on
   line 2 (splitting the `AA:BB:CC:DD:EE:FF` string).
-- The mobile app is expected to scan the QR (or read the name) to identify/connect to the
-  correct module.
+- The six-digit BLE pairing PIN is printed above the MAC. The mobile app should
+  scan the QR payload or ask the user to enter the displayed PIN during BLE
+  pairing.
 
 ## Score display
 

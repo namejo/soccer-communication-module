@@ -10,7 +10,8 @@ UUID scheme. NimBLE stack (`CONFIG_BT_NIMBLE_ENABLED=y`).
   - **Why the MAC is in the name (per `AI_HANDOFF.md`):** iPhones do not expose the BLE
     MAC to apps, so the app identifies/selects modules by the advertised **name** instead.
 - The MAC is the **Bluetooth** MAC: `esp_read_mac(base_mac, ESP_MAC_BT)`.
-- The same MAC string is encoded into the **QR code** on the "wait for connection" screen.
+- The wait-screen QR payload is `<BLE_MAC>|<six_digit_pairing_pin>` when BLE
+  secure pairing is configured. Older firmware encoded only the MAC string.
 - Advertising restarts automatically on disconnect (`MyServerCallbacks::onDisconnect`).
 
 ## UUIDs (`ble.cpp`)
@@ -18,7 +19,7 @@ UUID scheme. NimBLE stack (`CONFIG_BT_NIMBLE_ENABLED=y`).
 | Role | UUID | Properties |
 |------|------|------------|
 | Service | `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` | NUS |
-| RX (app → module, write) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | `WRITE` + `WRITE_NR` (write-without-response) |
+| RX (app -> module, write) | `6E400002-B5A3-F393-E0A9-E50E24DCCA9E` | `WRITE` + `WRITE_NR` + authenticated encrypted write |
 | TX (module → app, notify) | `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` | `NOTIFY` |
 | LOG (module → app/dev tool, notify) | `6E400004-B5A3-F393-E0A9-E50E24DCCA9E` | `NOTIFY` |
 
@@ -64,6 +65,24 @@ with `ble_gap_conn_desc`), from `definitions.h`:
 > - ⚠️ Validate on real hardware that 3 s does not cause spurious disconnects during normal
 >   play (the original 20 s was anti-flap); revisit upward if flapping reappears.
 
+## BLE security
+
+The command RX characteristic requires BLE Secure Connections pairing with MITM
+protection and bonding. The module acts as a display-only peripheral:
+
+- At boot, firmware generates a random six-digit pairing passkey.
+- The OLED wait screen shows the passkey and embeds `<BLE_MAC>|<PIN>` in the QR
+  payload.
+- The app/phone must pair by entering the displayed PIN before RX writes are
+  accepted.
+- RX uses `ESP_GATT_PERM_WRITE_ENC_MITM`, and the write callback also rejects
+  commands unless NimBLE reports an encrypted authenticated connection with a
+  16-byte key.
+
+This protects against nearby devices injecting referee commands without pairing.
+It does not prevent BLE jamming, power attacks, or denial of service by RF
+interference.
+
 ## Message framing
 
 Defined by `ble_msg_t` (`ble_processing.h`) and parsed in `MyCallbacks::onWrite`:
@@ -76,6 +95,8 @@ byte[1..N]   = payload data    (msg-specific; up to BLE_DATA_MAX_LENGTH = 10 byt
 - `ble_msg_t.data_length` = received length − 1 (the id byte is not counted).
 - Accepted only if `1 <= length <= BLE_DATA_MAX_LENGTH + 1` (i.e. id + up to 10 data bytes).
   Empty or oversized writes are silently ignored.
+- Known command IDs must also match their expected payload length before
+  dispatch. `PING` is variable length; state-changing commands are fixed length.
 - Valid messages are pushed to the queue (overwrite-oldest if full). Dispatch happens later
   in the main loop (`ble_msg_processing`), one message per loop iteration.
 
@@ -146,6 +167,7 @@ Value is in **milliseconds**; the display shows it as `seconds` or `m:ss` (see d
 
 - Unknown `msg_id`: `default` case does nothing (the error `Serial.println` is commented out).
 - Malformed length (0 or > 11 bytes total): dropped at `onWrite`, never queued.
+- Known command with the wrong payload length: dropped in `ble_msg_processing`.
 - No negative ACK / error reply is ever sent to the app.
 
 ## Protocol risks & compatibility notes
@@ -155,7 +177,8 @@ Value is in **milliseconds**; the display shows it as `seconds` or `m:ss` (see d
   `BLE_MSG_MAX_ID`** and keep existing order.
 - TX changed from INDICATE→NOTIFY and RX gained WRITE_NR (`ca23261`) — verify the shipped
   app matches.
-- No authentication/pairing logic in firmware; any BLE client can write commands.
+- BLE command writes require authenticated pairing on the `BLE_secure` branch.
+  The referee app must support pairing with the passkey from the OLED/QR.
 - `BLE_DATA_MAX_LENGTH = 10` caps payloads; current largest payload is 4 bytes (timers).
 - `BLE_MSG_PING` echo length uses `data_length + 1`; very large echoes are bounded by the
   10-byte input cap.

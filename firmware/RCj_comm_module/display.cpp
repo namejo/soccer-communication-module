@@ -2,10 +2,12 @@
 #include "OLEDDisplay.h"
 #include "esp_err.h"
 #include <SSD1306.h>
+#include <stdio.h>
 #include <sys/_stdint.h>
 #include "qrcodeoled.h"
 
 #include "definitions.h"
+#include "ble.h"
 #include "images.h"
 #include "functions.h"
 #include "fonts.h"
@@ -25,6 +27,12 @@ static String get_time_string(uint16_t seconds) {
 
 static String get_score_string() {
     return String(module_get_my_score()) + ":" + String(module_get_opponent_score());
+}
+
+static String get_pairing_passkey_string() {
+    char passkey[7];
+    snprintf(passkey, sizeof(passkey), "%06lu", (unsigned long) ble_get_pairing_passkey());
+    return String(passkey);
 }
 
 
@@ -50,17 +58,28 @@ int8_t display_screen_init() {
 
 int8_t display_screen_wait_for_connection() { 
     String mac_string = BLE_MAC_to_string();
+    String pairing_qr_payload = mac_string;
 
     display.clear();
 
+    if (ble_has_pairing_passkey()) {
+        pairing_qr_payload += "|" + get_pairing_passkey_string();
+    }
+
     qrcode.init(64, 64);
-    qrcode.create(mac_string);
+    qrcode.create(pairing_qr_payload);
 
     display.setFont(ArialMT_Plain_10);
     display.setTextAlignment(TEXT_ALIGN_CENTER);
 
-    display.drawString(96, 2, "Wait for\nconnection");
-    display.drawString(96, 39, (mac_string.substring(0,9) + "\n" + mac_string.substring(9)));
+    if (ble_has_pairing_passkey()) {
+        display.drawString(96, 0, "BLE PIN");
+        display.drawString(96, 13, get_pairing_passkey_string());
+        display.drawString(96, 35, (mac_string.substring(0,9) + "\n" + mac_string.substring(9)));
+    } else {
+        display.drawString(96, 2, "Wait for\nconnection");
+        display.drawString(96, 39, (mac_string.substring(0,9) + "\n" + mac_string.substring(9)));
+    }
 
     display.display();
     return ESP_OK;

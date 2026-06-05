@@ -3,26 +3,33 @@
 This document describes the current security posture of the ESP32-C5 soccer
 communication module firmware and the experimental SIBCP inter-bot transport.
 
-Status: **experimental, not hardened against adversarial wireless attacks**.
+Status: **BLE command writes are hardened with authenticated pairing on the
+`BLE_secure` branch; the experimental ESP-NOW inter-bot transport is still not
+hardened against adversarial wireless attacks**.
 
 ## Direct Answers
 
 ### Can someone interfere with Bluetooth and disable a bot?
 
-**Yes, in the current firmware this is possible.**
+**Unauthenticated BLE command injection is mitigated on the `BLE_secure`
+branch. RF denial of service is still possible.**
 
-The BLE command service is not authenticated, paired, bonded, encrypted, or
-access-controlled. Any BLE central that connects and writes valid command bytes
-to the RX characteristic can request state changes such as `PLAY`, `STOP`,
-`DAMAGE`, `HALF_BREAK`, or `GAME_OVER`.
+The BLE command service now requires BLE Secure Connections pairing with MITM
+protection and bonding. The module generates a six-digit passkey at boot, shows
+it on the OLED, includes it in the connection QR payload, and requires
+authenticated encrypted writes for the RX characteristic. A BLE central that has
+not paired with the displayed passkey should not be able to write referee
+commands such as `PLAY`, `STOP`, `DAMAGE`, `HALF_BREAK`, or `GAME_OVER`.
 
 Evidence:
 
-- `ble.cpp` creates the RX characteristic with `PROPERTY_WRITE` and
-  `PROPERTY_WRITE_NR`, with no security requirement:
-  `firmware/RCj_comm_module/ble.cpp`
-- `ble_processing.cpp` maps received BLE message IDs directly to state changes:
-  `BLE_MSG_STOP -> STM_STOP`, `BLE_MSG_DAMAGE -> STM_DAMAGE`, etc.
+- `ble.cpp` configures `ESP_LE_AUTH_REQ_SC_MITM_BOND`, display-only IO
+  capability, a per-boot random passkey, and `ESP_GATT_PERM_WRITE_ENC_MITM` on
+  the RX characteristic.
+- `ble.cpp` rejects RX writes unless the NimBLE connection reports encrypted,
+  authenticated security with a 16-byte key.
+- `ble_processing.cpp` validates per-command payload lengths before state
+  changes are dispatched.
 
 There is also an RF denial-of-service angle: sustained BLE interference or link
 loss can eventually trigger disconnect handling. The firmware intentionally
@@ -55,7 +62,7 @@ filtering.
 
 | Threat | Current status |
 |--------|----------------|
-| Nearby BLE central sends referee commands | **Not protected** |
+| Nearby BLE central sends referee commands | **Protected by authenticated pairing on `BLE_secure`** |
 | Nearby BLE jammer causes disconnect/fail-safe stop | **Not preventable in firmware** |
 | Nearby Wi-Fi/ESP-NOW injector sends SIBCP frames | **Not protected** |
 | Passive observer reads ESP-NOW SIBCP payloads | **Not protected** |
@@ -68,6 +75,8 @@ filtering.
 The current code does include basic reliability protections:
 
 - BLE input length is capped by `BLE_DATA_MAX_LENGTH`.
+- BLE command writes require Secure Connections pairing with MITM protection.
+- BLE command payloads are validated per message type before use.
 - BLE command queue is bounded and drops old commands if full.
 - SIBCP frames require magic bytes, bounded payload length, and CRC-16/CCITT.
 - ESP-NOW receive revalidates SIBCP frames before forwarding them to the robot.
@@ -79,27 +88,34 @@ against an active attacker.
 
 ## Findings
 
-### High: BLE referee commands are unauthenticated
+### Mitigated on `BLE_secure`: BLE referee commands were unauthenticated
 
-Current impact:
+Original impact:
 
 - A nearby device that connects as the BLE central can send `STOP`, `DAMAGE`,
   `HALF_BREAK`, or `GAME_OVER`.
 - A malicious or buggy client can control the match state without proving it is
   the referee app.
 
-Recommended mitigations:
+Implemented mitigation:
 
-1. Add BLE pairing/bonding with passkey or numeric comparison.
-2. Require a physical pairing window, for example hold a module button to allow
+- BLE Secure Connections with MITM protection and bonding.
+- Display-only passkey flow: the app/phone must enter the six-digit PIN shown
+  by the module.
+- Authenticated encrypted write permission on the RX characteristic.
+- Software-side authenticated-connection check before queueing commands.
+
+Remaining hardening options:
+
+1. Require a physical pairing window, for example hold a module button to allow
    new referee-app pairing.
-3. Store and prefer a bonded referee device identity.
-4. Consider app-layer authentication as well: command nonce + truncated HMAC
+2. Store and prefer a bonded referee device identity.
+3. Consider app-layer authentication as well: command nonce + truncated HMAC
    over `msg_id || payload`.
 
-### Medium: BLE malformed payloads are not validated per command
+### Mitigated on `BLE_secure`: BLE malformed payloads were not validated per command
 
-Current impact:
+Original impact:
 
 - `BLE_MSG_SET_NAME`, `BLE_MSG_SET_SCORE`, `BLE_MSG_DAMAGE`,
   `BLE_MSG_HALF_BREAK`, and `BLE_MSG_GAME_OVER` read fixed payload indexes but
@@ -107,10 +123,10 @@ Current impact:
 - Short malformed commands can use uninitialized payload bytes and produce
   unpredictable timers or scores.
 
-Recommended mitigation:
+Implemented mitigation:
 
-- Add a per-message expected length table and reject commands whose payload
-  length does not match.
+- A per-message expected length table rejects commands whose payload length does
+  not match before the state machine is touched.
 
 ### High: ESP-NOW inter-bot transport has no authentication or encryption
 
@@ -209,14 +225,14 @@ Recommended mitigation:
 
 ### Stage 1: Input hardening
 
-- Add BLE per-command payload length validation.
+- BLE per-command payload length validation is implemented on `BLE_secure`.
 - Reject external frames in the firmware-owned system ID range.
 - Add rate limiting for repeated BLE commands and SIBCP frames if needed.
 
 ### Stage 2: BLE access control
 
+- BLE pairing/bonding with passkey is implemented on `BLE_secure`.
 - Add a physical pairing mode.
-- Require BLE bonding/pairing for referee commands.
 - Optionally add app-layer command authentication so the GATT service is not the
   only security boundary.
 
@@ -241,7 +257,8 @@ Recommended mitigation:
 ## Practical Current Guidance
 
 - Do **not** claim the current robot-to-robot Wi-Fi link is secure.
-- Do **not** rely on BLE alone to prevent unauthorized referee commands.
+- On `BLE_secure`, BLE prevents unauthenticated command writes, but still does
+  not prevent RF jamming or all denial-of-service conditions.
 - Treat the current implementation as suitable for experimentation and controlled
   testing, not adversarial match environments.
 - If an attacker model includes nearby radios, implement authentication before

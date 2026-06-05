@@ -15,6 +15,35 @@
 
 static QueueHandle_t ble_msg_queue;
 
+static int8_t expected_data_length(uint8_t msg_id) {
+    switch (msg_id) {
+        case BLE_MSG_PING:
+            return -1;
+        case BLE_MSG_FW_VERSION:
+        case BLE_MSG_PLAY:
+        case BLE_MSG_STOP:
+            return 0;
+        case BLE_MSG_SET_NAME:
+        case BLE_MSG_SET_SCORE:
+        case BLE_MSG_GAME_OVER:
+            return 2;
+        case BLE_MSG_DAMAGE:
+        case BLE_MSG_HALF_BREAK:
+            return 4;
+        default:
+            return -2;
+    }
+}
+
+static bool has_valid_data_length(const ble_msg_t &msg) {
+    int8_t expected_length = expected_data_length(msg.msg_id);
+    if (expected_length == -1) {
+        return msg.data_length <= BLE_DATA_MAX_LENGTH;
+    }
+
+    return expected_length >= 0 && msg.data_length == expected_length;
+}
+
 int8_t ble_msg_processing_init() {
     ble_msg_queue = xQueueCreate(BLE_QUEUE_MAX_SIZE, sizeof(ble_msg_t));
 
@@ -30,6 +59,9 @@ int8_t ble_msg_processing() {
         return ESP_OK;
     }
 
+    if (!has_valid_data_length(received_msg)) {
+        return ESP_OK;
+    }
 
     switch(received_msg.msg_id) {
         case BLE_MSG_PING:
