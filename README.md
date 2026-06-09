@@ -56,7 +56,7 @@ The robot must respond to the start/stop signal for the entire game. Use **one**
 
 Both outputs carry the same 3.3 V logic-level signal. For 5 V robot inputs, add a level shifter before the robot. Always share **GND** with the robot controller — never connect VIN to a robot GPIO or to the 3.3 V pin.
 
-For a Raspberry Pi or another USB host, connect the module's USB-C port to the host's USB-A port. The ESP32-C5 enumerates as a serial device, typically `/dev/ttyACM0`. USB-C carries binary SIBCP frames, including the reserved system topic `/system/game_state` whenever the referee app changes the match state.
+For a Raspberry Pi or another USB host, connect the module's USB-C port to the host's USB-A port. The ESP32-C5 enumerates as a serial device, typically `/dev/ttyACM0`. USB-C carries binary SIBCP frames, including reserved `/system/...` topics whenever the referee app changes match state, score, countdowns, or important referee events.
 
 Install the Python helper and monitor the system state with:
 
@@ -100,7 +100,9 @@ The OLED shows a **countdown** for the duration of a robot's penalty. Teams may 
 
 ## 🤖 Robot-to-robot communication
 
-The ESP32-C5 firmware includes an **experimental inter-bot bridge** for teams that want two modules to exchange custom robot data. The robot controller talks to its local module over **UART1** (`RX1`/`TX1` on the U3 header, 460800 baud) or USB-C (`/dev/ttyACM0` on many Linux hosts). Valid framed packets are forwarded over **5 GHz ESP-NOW** on channel 36 to the other module, then written back out on that module's UART1, USB-C, and UART0 TX mirror.
+The ESP32-C5 firmware includes an **experimental inter-bot bridge** for teams that want two modules to exchange custom robot data. The robot controller talks to its local module over **UART1** (`RX1`/`TX1` on the U3 header, 460800 baud) or USB-C (`/dev/ttyACM0` on many Linux hosts). Valid framed packets are forwarded over **2.4 GHz ESP-NOW** on channel 1 to the other module, then written back out on that module's UART1, USB-C, and UART0 TX mirror.
+
+> This bridge is useful for experiments and team practice, but it is not yet match-hardened. ESP-NOW broadcast can drop frames and is not encrypted or authenticated in the current firmware. Do not rely on it for safety-critical behavior.
 
 Firmware-level framing uses SIBCP:
 
@@ -110,23 +112,81 @@ AA 55 | type | transaction_id | identifier_id | payload_len | payload | crc16
 
 The module validates the magic bytes, payload length, and CRC-16/CCITT before forwarding. The robot controller remains responsible for interpreting topics, service requests, service responses, and discovery payloads. A BLE log characteristic reports forwarded frames for debugging.
 
-A small Python client library is available in [`python/sibcp`](python/sibcp/) for Raspberry Pi
-or other Python-based robot controllers. It lets robot code register compact path-based topics
-and services while keeping the wire format binary:
+### Quick USB-C service test
 
-```python
-from sibcp import Bool, SerialTransport, SibcpNode
+Install the Python helper once:
 
-node = SibcpNode(SerialTransport("/dev/ttyAMA0", baudrate=460800))
-node.service("/ball_in_your_vision", service_id=1, response=Bool)
-
-@node.on_service("/ball_in_your_vision")
-def handle_ball_request(_request):
-    return camera.sees_ball()
+```sh
+python -m pip install -e python/sibcp[serial]
 ```
 
-Both robots must use the same path-to-ID mapping, for example
-`/ball_in_your_vision -> service_id=1`.
+On robot/module 2, expose a service:
+
+```sh
+sibcp service serve see_ball --port /dev/ttyACM1 --robot-id 2 --value true
+```
+
+On robot/module 1, call that service:
+
+```sh
+sibcp service call see_ball --port /dev/ttyACM0 --peer-id 2
+```
+
+### High-level robot APIs
+
+Python robot code should usually use the high-level `rjscm` wrapper:
+
+```python
+import rjscm
+
+with rjscm.connect("/dev/ttyACM0", robot_id=2) as robot:
+    robot.answer_see_ball(lambda: camera.sees_ball())
+
+    while True:
+        robot_loop()
+```
+
+C and C++ robot code can include the source-only wrapper:
+
+```cpp
+#include "rjscm.h"
+
+int main() {
+    auto robot = rjscm::Module::open("/dev/ttyACM0", 1);
+
+    bool peer_sees_ball = robot.askPeerSeesBall(2);
+    if (peer_sees_ball) {
+        // Adapt your tactic here.
+    }
+}
+```
+
+Build and install the C/C++ wrapper from the repository root:
+
+```sh
+cmake -S c/rjscm -B /tmp/rjscm-build
+cmake --build /tmp/rjscm-build
+cmake --install /tmp/rjscm-build --prefix /tmp/rjscm-install
+```
+
+Built-in helpers define standard robot/world topics such as `/robot/pose`, `/world/ball`, `/world/opponent`, `/ball_in_your_vision`, and `/request_role`. Firmware-owned system topics include `/system/game_state`, `/system/score`, `/system/match_time`, and `/system/referee_event`.
+
+The local module also consumes `/system/set_led` and `/system/play_melody` service requests.
+These are not broadcast to the peer module. The LED service is accepted only while the referee
+state is PLAY so stopped-output red remains the safety signal.
+
+Both robots must use the same path-to-ID mapping. Use IDs `0x20` through `0xEF` for team-defined topics and services. IDs `0xF0` through `0xFF` are reserved for firmware/system features and are filtered if received from outside the local module.
+
+More detailed guides:
+
+- [Python `rjscm` wrapper for students](docs/rjscm_wrapper_for_students.md)
+- [C/C++ `rjscm.h` wrapper for students](docs/rjscm_c_cpp_wrapper_for_students.md)
+- [Beginner service CLI guide](docs/service_cli_for_students.md)
+- [Raspberry Pi USB-C setup notes](docs/raspberry_pi_setup.md)
+- [SIBCP ID allocation rules](docs/sibcp_id_allocation.md)
+- [Two-module hardware test checklist](docs/two_module_hardware_checklist.md)
+- [Wi-Fi communication release-note draft](docs/release_notes_wifi_communication.md)
+- [SIBCP protocol and inter-bot bridge notes](docs/ai/12_sibcp_interbot_comm.md)
 
 > The old 2024 board's channel-select `A0`/`A1` pins and the `LOGV` UART-level pin are **not** present on this hardware.
 
@@ -174,7 +234,7 @@ Check the [open issues](https://github.com/robocup-junior/soccer-communication-m
 ## 🔭 Currently working on
 
 - Hardening robot-to-robot communication after real match testing
-- Additional RGB LED feedback patterns
+- Addressing, authentication, and retry behavior for inter-bot communication
 
 ## 🏆 Hall of fame
 

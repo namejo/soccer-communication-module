@@ -55,23 +55,31 @@ Implemented in `status_led.cpp`:
 |--------------------|-----|
 | PLAY / GO | green at 50% PWM duty |
 | stopped output | red at 50% PWM duty |
-| unused blue channel | initialized off |
+| custom effect | off/solid/blink/pulse RGB, scaled to the same 50% maximum |
 
 The LED tracks robot output, not every display state individually. `STM_STOP`, penalty,
 halftime, game-over, disconnected, and init all leave the robot output stopped and therefore
 show red.
 
-Future ideas still open: waiting pulse, penalty/halftime amber, game-over pattern, and any
-blue-channel use.
+Robot code can request a temporary custom LED effect with the local SIBCP service
+`/system/set_led`. The firmware accepts that service only while the state is PLAY; any
+referee-owned state update clears the custom effect and restores PLAY green or stopped red.
+
+Future ideas still open: waiting pulse, penalty/halftime amber, game-over pattern, and
+module-owned blue-channel use.
 
 ## Buzzer behavior
 
 Implemented in `buzzer.cpp`: a non-blocking 2.7 kHz, 80 ms tone on match-state changes.
-The firmware calls `buzzer_update()` from `stm_update()`, so the tone timeout does not block
-BLE, display, SIBCP forwarding, or output-pin updates.
+The firmware also supports predefined non-blocking melodies through the local SIBCP service
+`/system/play_melody` (`GOAL`, `ACK`, repeat capped at 4). A referee state-change beep
+preempts any active melody.
+
+The firmware calls `buzzer_update()` from `stm_update()`, so tone timeouts do not block BLE,
+display, SIBCP forwarding, or output-pin updates.
 
 Future ideas still open: different play/stop tones, penalty patterns, self-penalty
-acknowledgement, and power-dip warning.
+acknowledgement, programmable team melodies, and power-dip warning.
 
 ## Source files reviewed
 

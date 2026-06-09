@@ -41,8 +41,8 @@
 #define INTERBOT_UART_RX_GPIO   4
 #define INTERBOT_UART_TX_GPIO   5
 
-// Inter-bot ESP-NOW
-#define INTERBOT_WIFI_CHANNEL   36
+// Inter-bot ESP-NOW, 2.4 GHz channel.
+#define INTERBOT_WIFI_CHANNEL   1
 
 // RGB status LED
 #define RGB_LED_RED_GPIO        27

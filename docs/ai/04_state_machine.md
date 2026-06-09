@@ -21,19 +21,20 @@ Implemented in `state_machine.cpp` / `state_machine.h`. The active state is a si
 
 ## Output pin behavior
 
-`update_output_satet()` (note: misspelled "satet") is called by `stm_update()` **only when
+`update_output_state()` is called by `stm_update()` **only when
 `state_changed` is true**:
 
 ```c
 robot_play ? (OUT1=HIGH, OUT2=HIGH) : (OUT1=LOW, OUT2=LOW)
 emit SIBCP TOPIC /system/game_state with {state, robot_play}
+emit SIBCP TOPIC /system/match_time with countdown context when available
+emit SIBCP TOPIC /system/referee_event for penalty/half/game-over transitions
 ```
 
 `robot_play` is set per state handler: `true` only in `state_play()`; `false` in
-`state_stop()`, `state_damage()`, `state_half_break()`, `state_game_over()`.
-`STM_INIT` and `STM_DISCONNECTED` do not set `robot_play` themselves — its value persists,
-but on the **transition into** `STM_DISCONNECTED` the previous handler had already set it
-`false` (or it is `false` from boot), so outputs are effectively LOW when disconnected.
+`state_wait_connecting()`, `state_stop()`, `state_damage()`, `state_half_break()`, and
+`state_game_over()`. This makes BLE disconnects fail safe to stopped output even if the
+previous state was PLAY.
 
 ## Per-loop rendering vs change-gated rendering
 
@@ -61,19 +62,21 @@ Consequences:
   Resuming play requires the app to send `BLE_MSG_PLAY` (or `STOP`). Putting robots back is
   a referee/team action per the rules (public README), not an automatic firmware event.
 
-### The `660000 ms` init timer (unexplained)
+### The `660000 ms` init timer
 
 ```c
 int8_t stm_init() {
-    stm_set_timer(660000); //DOTO why ist here this? WTF
+    // Default match timer. State-specific timers overwrite this when needed.
+    stm_set_timer(660000);
     return ESP_OK;
 }
 ```
 
-- 660000 ms = **11 minutes**. The author's own comment questions why it is there.
-- It is harmless unless a `STM_DAMAGE`/`STM_HALF_TIME` screen is somehow shown before any
-  `BLE_MSG_DAMAGE`/`HALF_BREAK` arrives (those messages overwrite the timer anyway).
-- **Do not "fix" this without understanding intent** — flagged as an open question.
+- 660000 ms = **11 minutes**, used as the default match timer.
+- `BLE_MSG_DAMAGE` and `BLE_MSG_HALF_BREAK` overwrite the timer with the app-supplied
+  countdown duration before switching state.
+- The firmware still does not auto-transition at 0; the app remains responsible for the
+  next state command.
 
 ## Transition triggers summary
 
@@ -135,8 +138,6 @@ stateDiagram-v2
 
 ## Suspicious / noteworthy comments
 
-- `state_machine.cpp:88` — `//DOTO why ist here this? WTF` on the `660000` init timer.
-- `update_output_satet` — function name typo (cosmetic).
 - `ble.cpp` `onConnect` — `//stm_set_state(STM_PLAY);` commented out.
 
 ## Source files reviewed
@@ -145,7 +146,6 @@ stateDiagram-v2
 
 ## Open questions
 
-- Intended purpose of the `660000 ms` timer in `stm_init()`.
 - Should the penalty/halftime timer auto-return to `STM_PLAY`/`STM_STOP` at 0, or is the
   app always responsible?
 - Should `STM_DISCONNECTED` redraw on score/name updates (currently it does not)?

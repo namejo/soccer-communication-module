@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 import threading
 import time
@@ -79,7 +80,7 @@ class SibcpNode:
         self._parser = StreamingParser()
         self._send_lock = threading.Lock()
         self._pending_lock = threading.Lock()
-        self._pending: dict[int, _PendingCall] = {}
+        self._pending: dict[tuple[int, int], _PendingCall] = {}
         self._transaction_id = 0
 
         self._topics_by_path: dict[str, TopicDefinition] = {}
@@ -191,12 +192,13 @@ class SibcpNode:
 
     def call(self, path: str, request: Any = None, *, timeout: float | None = None) -> Any:
         definition = self._require_service(path)
-        transaction_id = self._next_transaction_id()
         pending = _PendingCall(definition=definition, event=threading.Event())
         payload = definition.request.encode(request)
 
         with self._pending_lock:
-            self._pending[transaction_id] = pending
+            transaction_id = self._next_transaction_id()
+            pending_key = (transaction_id, definition.service_id)
+            self._pending[pending_key] = pending
 
         try:
             self._send(
@@ -212,14 +214,24 @@ class SibcpNode:
             return pending.response
         finally:
             with self._pending_lock:
-                self._pending.pop(transaction_id, None)
+                self._pending.pop(pending_key, None)
 
-    def advertise_services(self, *, source_robot_id: int = 0) -> None:
+    def advertise_services(
+        self,
+        *,
+        source_robot_id: int = 0,
+        service_ids: Iterable[int] | None = None,
+    ) -> None:
         _validate_id(source_robot_id, "source_robot_id")
-        service_ids = sorted(self._services_by_id)
-        if len(service_ids) + 2 > 240:
+        advertised_ids = sorted(
+            self._services_by_id if service_ids is None else service_ids
+        )
+        for service_id in advertised_ids:
+            if service_id not in self._services_by_id:
+                raise DefinitionError(f"unknown service id {service_id}")
+        if len(advertised_ids) + 2 > 240:
             raise DefinitionError("too many services to advertise in one SIBCP frame")
-        payload = bytes([source_robot_id, len(service_ids), *service_ids])
+        payload = bytes([source_robot_id, len(advertised_ids), *advertised_ids])
         self._send(PacketType.SERVICE_DISCOVERY, 0, 0, payload)
 
     def poll(self, *, timeout: float = 0.0, max_frames: int | None = 1) -> int:
@@ -376,10 +388,13 @@ class SibcpNode:
 
     def _handle_service_response(self, frame: Frame) -> None:
         with self._pending_lock:
-            pending = self._pending.get(frame.transaction_id)
+            pending = self._pending.get((frame.transaction_id, frame.identifier_id))
 
         if pending is None:
-            self._log(f"ignored unexpected service response tx={frame.transaction_id}")
+            self._log(
+                "ignored unexpected service response "
+                f"tx={frame.transaction_id} id={frame.identifier_id}"
+            )
             return
 
         if len(frame.payload) < 1:

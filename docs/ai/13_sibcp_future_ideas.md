@@ -1,7 +1,27 @@
 # 13 — SIBCP Future Ideas
 
-This document captures possible next features for the SIBCP robot-to-robot and
-module-to-robot layer. These are design notes, not implemented behavior.
+This document captures SIBCP robot-to-robot and module-to-robot feature ideas.
+Several items are now implemented on `feature_wifi_module_communication`; remaining
+notes are called out as future work.
+
+## Implementation Status
+
+Implemented:
+
+- Python schema helpers for `/robot/pose`, `/world/ball`, `/world/opponent`,
+  `/ball_in_your_vision`, and `/request_role`.
+- Firmware system topics for `/system/game_state`, `/system/score`,
+  `/system/match_time`, and `/system/referee_event`.
+- Firmware-owned local services `/system/set_led` and `/system/play_melody`.
+  `/system/set_led` is rejected outside PLAY so referee STOP feedback wins.
+
+Still future work:
+
+- Addressing, peer identity, duplicate filtering, ACK/retry, and Wi-Fi authentication.
+- Programmable melody upload; firmware currently supports predefined melody IDs only.
+- Full match-duration tracking beyond timer values already supplied by BLE penalty and
+  half-time commands.
+- Optional non-robot "base station" listeners for commentary, logging, and audio effects.
 
 ## Goals
 
@@ -28,7 +48,7 @@ names that must map to agreed IDs on both robots.
 
 Robot publishes its own estimated field position.
 
-Suggested payload:
+Payload:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -48,7 +68,7 @@ Use cases:
 
 Robot publishes its current ball estimate.
 
-Suggested payload:
+Payload:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -111,9 +131,9 @@ This avoids both robots independently choosing the same role.
 
 ## System Topics From The Module
 
-### Existing: `/system/game_state`
+### `/system/game_state`
 
-Already implemented as reserved topic ID `0xF0`.
+Implemented as reserved topic ID `0xF0`.
 
 Payload:
 
@@ -122,9 +142,10 @@ Payload:
 | `state` | `uint8` | init, disconnected, play, stop, damage, half-time, game-over |
 | `robot_play` | `bool` | direct GO/STOP output state |
 
-### Proposed: `/system/match_time`
+### `/system/match_time`
 
-Expose remaining time so robots can adjust behavior near the end.
+Implemented as reserved topic ID `0xF2`. It exposes countdown information for phases where
+the firmware receives a timer, currently penalty/damage and half-time.
 
 Suggested payload:
 
@@ -139,9 +160,10 @@ Use cases:
 - More aggressive attack when behind late in the match.
 - Safer defensive behavior when ahead near the end.
 
-### Proposed: `/system/score`
+### `/system/score`
 
-Expose current score.
+Implemented as reserved topic ID `0xF1`. The firmware emits it when BLE score messages or
+game-over messages update the score.
 
 Suggested payload:
 
@@ -155,11 +177,12 @@ Use cases:
 - If losing, choose higher-risk tactics.
 - If winning, prefer ball control and defense.
 
-### Proposed: `/system/referee_event`
+### `/system/referee_event`
 
-Short event topic for important referee-side changes.
+Implemented as reserved topic ID `0xF3`. It is a short event topic for important
+referee-side changes.
 
-Suggested event values:
+Event values:
 
 | Value | Event |
 |-------|-------|
@@ -180,7 +203,7 @@ These should be firmware-owned because they control module hardware.
 
 Let robot code request LED feedback.
 
-Suggested request:
+Implemented request:
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -197,13 +220,14 @@ override custom robot LED effects unless explicitly allowed.
 
 Let teams play a short custom jingle, for example after a goal.
 
-Suggested request:
+Implemented request:
 
 | Field | Type | Meaning |
 |-------|------|---------|
 | `melody_id` | `uint8` | Predefined melody stored in firmware |
 | `repeat` | `uint8` | Repeat count, capped |
-| `volume` | `uint8` | Optional future field, 0 to 100 |
+
+Volume is not implemented yet.
 
 Alternative request for programmable tones:
 
@@ -225,29 +249,104 @@ Keep this bounded. The buzzer is passive and firmware must stay non-blocking.
 - If `/system/referee_event` reports goal scored, play `/system/play_melody` with a team
   jingle and reset local strategy state.
 
+## Base Station And Commentary Ideas
+
+If future firmware and the referee app can decode and display custom SIBCP messages, the same
+radio traffic could also support a non-robot listener. This could be called a base station,
+commentary station, or event station.
+
+Possible setup:
+
+```text
+robots/modules -> ESP-NOW SIBCP traffic -> base station module -> USB/BLE/app/audio device
+```
+
+Use cases:
+
+- Live match commentary based on decoded robot topics and services.
+- Referee-app logs that show team-defined events such as "robot 1 sees ball" or
+  "defender switched role".
+- A separate ESP32 audio module with an audio jack or DAC that listens for system events and
+  plays prerecorded sound files.
+- Goal, half-time, match-start, and match-end jingles without putting extra audio hardware on
+  every robot.
+- Debug replay after a match by recording decoded SIBCP events with timestamps.
+
+### AI Live Commentary
+
+The base station could also transform decoded event streams into live commentary. One possible
+architecture is to collect structured SIBCP events from both teams, filter them into a compact
+match timeline, and stream that timeline to a low-latency speech system such as the OpenAI
+Realtime API:
+
+https://openai.com/index/introducing-the-realtime-api/
+
+Example event flow:
+
+```text
+team A/B custom topics + system referee events
+  -> base station decoder
+  -> rate-limited event timeline
+  -> live commentary prompt/context
+  -> generated speech for spectators or a stream overlay
+```
+
+Useful event inputs:
+
+- `/system/referee_event` for goals, half-time, penalties, and match end.
+- `/system/score` and `/system/match_time` for context-aware commentary.
+- Robot-owned topics such as `/world/ball`, `/robot/pose`, role changes, or custom
+  "shot attempt" and "defensive block" events.
+- Service-call summaries, for example "robot 1 asked robot 2 whether it sees the ball".
+
+Constraints for AI commentary:
+
+- Do not stream raw high-rate telemetry directly. Aggregate and rate-limit events first.
+- Avoid private team debugging data unless teams explicitly opt in.
+- Make clear to spectators that commentary is AI-generated if it is not obvious from context.
+- Keep the AI/base-station path read-only; it must not send commands back to robots or modules.
+- Store only the minimum event log needed for replay/debugging.
+
+Important design constraints:
+
+- A base station should be receive-only during matches unless there is a clear authorization
+  model. It must not be able to spoof robot commands or referee/system topics.
+- It should use the same schema/ID registry as the teams so custom payloads can be decoded
+  without guessing.
+- More than two active modules requires peer identity and addressing, otherwise a base station
+  cannot reliably tell which robot produced each event.
+- Audio playback should be driven by high-level events such as `/system/referee_event` or
+  team-defined event topics, not by every raw packet.
+- For public commentary, rate limits and filtering are needed so telemetry topics do not flood
+  the app or audio device.
+
 ## Open Design Questions
 
-1. Should system topic IDs live in firmware headers, Python constants, or a generated shared
-   schema file?
+1. Should system topic IDs continue to be duplicated in firmware headers and Python constants,
+   or should they move to a generated shared schema file?
 2. Should robot topics use broadcast only, or should the protocol grow addressing before more
    world-model topics are added?
 3. How should stale data be handled: timestamps only, TTL in the library, or module-level
    filtering?
 4. Should `/system/set_led` be disabled during STOP or only allowed to use dim status-safe
    colors?
-5. Should melodies be predefined by ID for safety and simplicity, or should teams be allowed
-   to upload arbitrary tone sequences?
-6. Should score and time come directly from the referee app over BLE, or should the module
-   derive them from existing BLE messages?
+5. Should teams be allowed to upload arbitrary tone sequences, or are predefined melody IDs
+   enough for match use?
+6. Should match time include full running match time from the app, or only the countdown phases
+   the firmware already receives?
+7. Should a base station be supported as a first-class read-only peer, and how should it obtain
+   the shared schema/ID registry for custom team messages?
+8. Should the referee app show custom team messages directly, or should it forward decoded
+   events to an external commentary/audio station?
 
 ## Suggested Next Implementation Order
 
-1. Add schema constants to the Python library for `/system/game_state`, `/system/score`, and
-   `/system/match_time`.
-2. Extend firmware to emit `/system/score` whenever BLE score messages change.
-3. Extend firmware to emit `/system/match_time` during penalty, half-time, and match phases
-   once the app provides enough timing information.
-4. Add robot-owned example topics: `/robot/pose` and `/world/ball`.
-5. Add `/system/set_led` as a guarded service.
-6. Add `/system/play_melody` with predefined melody IDs first; consider programmable tones
-   only after hardware testing.
+1. Add per-peer addressing and a module identity field so more than two modules can share one
+   field without processing their own broadcasts.
+2. Add ESP-NOW authentication/encryption or an application-level message authentication code
+   before considering match use.
+3. Add duplicate filtering and service-call timeouts/retries for crowded fields.
+4. Add richer match time once the referee app exposes enough timing information.
+5. Consider programmable melodies only after predefined melodies are proven safe and useful.
+6. Consider read-only base-station/commentary support after addressing, authentication, and
+   schema registry work exists.

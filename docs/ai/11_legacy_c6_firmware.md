@@ -172,7 +172,7 @@ A workflow on `legacy/esp32-c6` (a copy/edit of `firmware-release.yml`) that:
       (`/dev/ttyACM0`); hash verified. See the flashing-method note below.
 
 **Not blocking (known, low risk — document, don't fix for legacy):**
-- `stm_init()` `660000 ms` timer (`//DOTO … WTF`) — harmless; overwritten by DAMAGE/HALF_BREAK.
+- `stm_init()` `660000 ms` default timer — harmless; overwritten by DAMAGE/HALF_BREAK.
 - `STM_DISCONNECTED` only redraws on state change (score/name updates not shown while idle) —
   cosmetic.
 - Two entry points (`.ino` vs `main/app_main.cpp`) must stay in sync — maintenance hazard.

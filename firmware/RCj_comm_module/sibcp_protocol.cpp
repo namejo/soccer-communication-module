@@ -174,3 +174,30 @@ const char *sibcp_packet_type_name(uint8_t packet_type)
             return "UNKNOWN";
     }
 }
+
+bool sibcp_is_system_topic(uint8_t topic_id)
+{
+    return topic_id >= 0xF0;
+}
+
+bool sibcp_is_system_service(uint8_t service_id)
+{
+    return service_id >= 0xF0;
+}
+
+bool sibcp_is_reserved_external_frame(const sibcp_frame_t *frame)
+{
+    if (frame == NULL) {
+        return false;
+    }
+
+    switch (frame->packet_type) {
+        case SIBCP_PACKET_TOPIC:
+            return sibcp_is_system_topic(frame->identifier_id);
+        case SIBCP_PACKET_SERVICE_REQUEST:
+        case SIBCP_PACKET_SERVICE_RESPONSE:
+            return sibcp_is_system_service(frame->identifier_id);
+        default:
+            return false;
+    }
+}

@@ -9,11 +9,59 @@
 
 #include "definitions.h"
 #include "functions.h"
+#include "interbot_comm.h"
+#include "sibcp_protocol.h"
 #include "state_machine.h"
 #include "ble.h"
 #include "ble_processing.h"
 
 static QueueHandle_t ble_msg_queue;
+
+static int8_t expected_data_length(uint8_t msg_id) {
+    switch (msg_id) {
+        case BLE_MSG_PING:
+            return -1;
+        case BLE_MSG_FW_VERSION:
+        case BLE_MSG_PLAY:
+        case BLE_MSG_STOP:
+            return 0;
+        case BLE_MSG_SET_NAME:
+        case BLE_MSG_SET_SCORE:
+        case BLE_MSG_GAME_OVER:
+            return 2;
+        case BLE_MSG_DAMAGE:
+        case BLE_MSG_HALF_BREAK:
+            return 4;
+        default:
+            return -2;
+    }
+}
+
+static bool has_valid_data_length(const ble_msg_t &msg) {
+    int8_t expected_length = expected_data_length(msg.msg_id);
+    if (expected_length == -1) {
+        return msg.data_length <= BLE_DATA_MAX_LENGTH;
+    }
+
+    return expected_length >= 0 && msg.data_length == expected_length;
+}
+
+static void update_score(uint8_t my_score, uint8_t opponent_score) {
+    uint8_t previous_my_score = module_get_my_score();
+    uint8_t previous_opponent_score = module_get_opponent_score();
+
+    module_set_my_score(my_score);
+    module_set_opponent_score(opponent_score);
+    interbot_comm_send_system_score(my_score, opponent_score);
+
+    if (my_score > previous_my_score) {
+        interbot_comm_send_system_referee_event(SIBCP_REF_EVENT_GOAL_OWN);
+    }
+
+    if (opponent_score > previous_opponent_score) {
+        interbot_comm_send_system_referee_event(SIBCP_REF_EVENT_GOAL_OPPONENT);
+    }
+}
 
 int8_t ble_msg_processing_init() {
     ble_msg_queue = xQueueCreate(BLE_QUEUE_MAX_SIZE, sizeof(ble_msg_t));
@@ -30,6 +78,9 @@ int8_t ble_msg_processing() {
         return ESP_OK;
     }
 
+    if (!has_valid_data_length(received_msg)) {
+        return ESP_OK;
+    }
 
     switch(received_msg.msg_id) {
         case BLE_MSG_PING:
@@ -45,8 +96,7 @@ int8_t ble_msg_processing() {
             module_set_indicator(String((char)received_msg.data[0]) + String((char)received_msg.data[1]));
             break;
         case BLE_MSG_SET_SCORE:
-            module_set_my_score(received_msg.data[0]);
-            module_set_opponent_score(received_msg.data[1]);
+            update_score(received_msg.data[0], received_msg.data[1]);
             break;
         case BLE_MSG_PLAY:
             stm_set_state(STM_PLAY);
@@ -63,8 +113,7 @@ int8_t ble_msg_processing() {
             stm_set_state(STM_HALF_TIME);
             break;            
         case BLE_MSG_GAME_OVER:
-            module_set_my_score(received_msg.data[0]);
-            module_set_opponent_score(received_msg.data[1]);
+            update_score(received_msg.data[0], received_msg.data[1]);
             stm_set_state(STM_GAME_OVER);
             break;
         default:

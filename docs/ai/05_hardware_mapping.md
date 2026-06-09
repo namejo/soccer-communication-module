@@ -24,7 +24,7 @@ The V7/2026 schematic is now in the repo and the pin map is **confirmed**:
 #define OUTPUT2_GPIO     8    // robot start/stop OUT2 (mirrors OUT1)
 #define INTERBOT_UART_RX_GPIO   4     // UART1 RX1, SIBCP from robot MCU
 #define INTERBOT_UART_TX_GPIO   5     // UART1 TX1, SIBCP to robot MCU
-#define INTERBOT_WIFI_CHANNEL   36    // 5 GHz ESP-NOW channel
+#define INTERBOT_WIFI_CHANNEL   1     // 2.4 GHz ESP-NOW channel
 #define RGB_LED_RED_GPIO        27
 #define RGB_LED_GREEN_GPIO      24
 #define RGB_LED_BLUE_GPIO       23

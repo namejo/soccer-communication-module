@@ -6,9 +6,13 @@ import argparse
 
 from sibcp import (
     GameState,
+    RefereeEvent,
     SerialTransport,
     SibcpNode,
     SYSTEM_GAME_STATE_TOPIC,
+    SYSTEM_MATCH_TIME_TOPIC,
+    SYSTEM_REFEREE_EVENT_TOPIC,
+    SYSTEM_SCORE_TOPIC,
     define_system_topics,
 )
 
@@ -27,6 +31,23 @@ def main() -> None:
         state = GameState(message["state"]).name
         robot_play = "PLAY" if message["robot_play"] else "STOP"
         print(f"{state}: robot output {robot_play}")
+
+    @node.on_topic(SYSTEM_SCORE_TOPIC)
+    def handle_score(message):
+        print(f"score: own={message['own_score']} opponent={message['opponent_score']}")
+
+    @node.on_topic(SYSTEM_MATCH_TIME_TOPIC)
+    def handle_match_time(message):
+        remaining_s = message["remaining_ms"] / 1000.0
+        total_s = message["phase_total_ms"] / 1000.0
+        print(
+            f"match time: half={message['half']} "
+            f"remaining={remaining_s:.1f}s total={total_s:.1f}s"
+        )
+
+    @node.on_topic(SYSTEM_REFEREE_EVENT_TOPIC)
+    def handle_referee_event(message):
+        print(f"referee event: {RefereeEvent(message['event']).name}")
 
     try:
         while True:

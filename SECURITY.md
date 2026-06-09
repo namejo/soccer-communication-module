@@ -68,6 +68,7 @@ filtering.
 The current code does include basic reliability protections:
 
 - BLE input length is capped by `BLE_DATA_MAX_LENGTH`.
+- BLE commands are validated against per-command expected payload lengths before dispatch.
 - BLE command queue is bounded and drops old commands if full.
 - SIBCP frames require magic bytes, bounded payload length, and CRC-16/CCITT.
 - ESP-NOW receive revalidates SIBCP frames before forwarding them to the robot.
@@ -97,20 +98,12 @@ Recommended mitigations:
 4. Consider app-layer authentication as well: command nonce + truncated HMAC
    over `msg_id || payload`.
 
-### Medium: BLE malformed payloads are not validated per command
+### Resolved in `feature_wifi_module_communication`: BLE malformed payload lengths
 
-Current impact:
-
-- `BLE_MSG_SET_NAME`, `BLE_MSG_SET_SCORE`, `BLE_MSG_DAMAGE`,
-  `BLE_MSG_HALF_BREAK`, and `BLE_MSG_GAME_OVER` read fixed payload indexes but
-  do not first verify `data_length`.
-- Short malformed commands can use uninitialized payload bytes and produce
-  unpredictable timers or scores.
-
-Recommended mitigation:
-
-- Add a per-message expected length table and reject commands whose payload
-  length does not match.
+The firmware now rejects BLE commands whose payload length does not match the
+expected fixed length for that command. This prevents short `SET_NAME`,
+`SET_SCORE`, `DAMAGE`, `HALF_BREAK`, and `GAME_OVER` frames from reading
+uninitialized payload bytes.
 
 ### High: ESP-NOW inter-bot transport has no authentication or encryption
 
@@ -149,8 +142,8 @@ Recommended mitigation:
 
 Current impact:
 
-- The firmware emits `/system/game_state` locally, but the bridge forwards any
-  valid SIBCP frame received from radio or host serial.
+- The firmware emits `/system/...` topics locally, but the bridge forwards any
+  valid SIBCP topic frame received from radio or host serial.
 - A peer or attacker could send a frame using the reserved system topic ID
   `0xF0`, and robot-side code may treat it as firmware truth unless the client
   library or firmware filters it.
@@ -159,8 +152,8 @@ Recommended mitigations:
 
 1. Reserve a firmware-owned ID range, for example `0xF0` to `0xFF`.
 2. Reject external frames using firmware-owned system topic IDs.
-3. If future system services are needed, handle them locally in firmware instead
-   of blindly forwarding them over ESP-NOW.
+3. Continue handling firmware-owned system services locally instead of forwarding
+   them over ESP-NOW.
 4. Include source information in the Python library API so robot code can tell
    local module system messages from peer robot messages.
 
@@ -209,7 +202,6 @@ Recommended mitigation:
 
 ### Stage 1: Input hardening
 
-- Add BLE per-command payload length validation.
 - Reject external frames in the firmware-owned system ID range.
 - Add rate limiting for repeated BLE commands and SIBCP frames if needed.
 

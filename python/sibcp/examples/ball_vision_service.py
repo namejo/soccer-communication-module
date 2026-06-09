@@ -5,10 +5,12 @@ from __future__ import annotations
 import argparse
 import time
 
-from sibcp import Bool, SerialTransport, SibcpNode
-
-BALL_SERVICE = "/ball_in_your_vision"
-BALL_SERVICE_ID = 1
+from sibcp import (
+    BALL_IN_VISION_SERVICE,
+    SerialTransport,
+    SibcpNode,
+    define_robot_world_services,
+)
 
 
 def sees_ball() -> bool:
@@ -18,14 +20,14 @@ def sees_ball() -> bool:
 
 def run_server(port: str) -> None:
     node = SibcpNode(SerialTransport(port, baudrate=460800), logger=print)
-    node.service(BALL_SERVICE, service_id=BALL_SERVICE_ID, response=Bool)
+    define_robot_world_services(node)
 
-    @node.on_service(BALL_SERVICE)
+    @node.on_service(BALL_IN_VISION_SERVICE)
     def handle_ball_request(_request: None) -> bool:
         return sees_ball()
 
     node.start_background_reader()
-    print(f"listening for {BALL_SERVICE} on {port}")
+    print(f"listening for {BALL_IN_VISION_SERVICE} on {port}")
     try:
         while True:
             time.sleep(1.0)
@@ -35,10 +37,10 @@ def run_server(port: str) -> None:
 
 def run_client(port: str, interval: float) -> None:
     node = SibcpNode(SerialTransport(port, baudrate=460800), logger=print)
-    node.service(BALL_SERVICE, service_id=BALL_SERVICE_ID, response=Bool)
+    define_robot_world_services(node)
     try:
         while True:
-            value = node.call(BALL_SERVICE, timeout=0.2)
+            value = node.call(BALL_IN_VISION_SERVICE, timeout=0.2)
             print(f"peer sees ball: {value}")
             time.sleep(interval)
     finally:

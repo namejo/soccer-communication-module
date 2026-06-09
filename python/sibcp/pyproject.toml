@@ -27,5 +27,8 @@ classifiers = [
 serial = ["pyserial>=3.5"]
 test = []
 
+[project.scripts]
+sibcp = "sibcp.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

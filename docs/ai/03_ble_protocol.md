@@ -76,6 +76,8 @@ byte[1..N]   = payload data    (msg-specific; up to BLE_DATA_MAX_LENGTH = 10 byt
 - `ble_msg_t.data_length` = received length − 1 (the id byte is not counted).
 - Accepted only if `1 <= length <= BLE_DATA_MAX_LENGTH + 1` (i.e. id + up to 10 data bytes).
   Empty or oversized writes are silently ignored.
+- `ble_processing.cpp` also validates each command against its expected payload length before
+  dispatch. Fixed-length commands with short or extra payloads are ignored.
 - Valid messages are pushed to the queue (overwrite-oldest if full). Dispatch happens later
   in the main loop (`ble_msg_processing`), one message per loop iteration.
 
@@ -106,12 +108,12 @@ without updating the app:
 | `BLE_MSG_PING` | arbitrary, echoed | Replies with the **same** bytes (`data_length + 1`) on TX | link check |
 | `BLE_MSG_FW_VERSION` | none | Replies `[id, FW_VERSION_MAJOR, FW_VERSION_MINOR]` (3 bytes) | — |
 | `BLE_MSG_SET_NAME` | `data[0]`, `data[1]` = two ASCII chars | `module_set_indicator(c0 + c1)` | display only |
-| `BLE_MSG_SET_SCORE` | `data[0]` = my score, `data[1]` = opponent score | sets both scores | display only |
+| `BLE_MSG_SET_SCORE` | `data[0]` = my score, `data[1]` = opponent score | sets both scores, emits `/system/score` and goal events on score increase | display, SIBCP system topics |
 | `BLE_MSG_PLAY` | none | `stm_set_state(STM_PLAY)` | **OUT1/2 → HIGH**, display |
 | `BLE_MSG_STOP` | none | `stm_set_state(STM_STOP)` | **OUT1/2 → LOW**, display |
 | `BLE_MSG_DAMAGE` | `data[0..3]` = uint32 **big-endian** milliseconds | `stm_set_timer(ms)`, `stm_set_state(STM_DAMAGE)` | OUT1/2 → LOW, countdown |
 | `BLE_MSG_HALF_BREAK` | `data[0..3]` = uint32 **big-endian** milliseconds | `stm_set_timer(ms)`, `stm_set_state(STM_HALF_TIME)` | OUT1/2 → LOW, countdown |
-| `BLE_MSG_GAME_OVER` | `data[0]` = my score, `data[1]` = opponent score | sets scores, `stm_set_state(STM_GAME_OVER)` | OUT1/2 → LOW, display |
+| `BLE_MSG_GAME_OVER` | `data[0]` = my score, `data[1]` = opponent score | sets scores, emits `/system/score`, `stm_set_state(STM_GAME_OVER)` | OUT1/2 → LOW, display, SIBCP system topics |
 | `BLE_MSG_DISCONNECT` | — (sent by module) | Sent in `ble_disconnect()` before dropping the link | — |
 | `BLE_MSG_ASK_FOR_PENALTY` | — (sent by module) | Sent on local double-press, **only while `STM_PLAY`** | — |
 
@@ -124,8 +126,9 @@ without updating the app:
 
 ### Which messages affect the display only
 
-`BLE_MSG_SET_NAME`, `BLE_MSG_SET_SCORE` (these do not change state; the new values appear
-the next time a screen re-renders). `BLE_MSG_GAME_OVER` also updates the score.
+`BLE_MSG_SET_NAME` and `BLE_MSG_SET_SCORE` do not change state; the new values appear the
+next time a screen re-renders. `BLE_MSG_SET_SCORE` also emits SIBCP score/referee-event
+topics. `BLE_MSG_GAME_OVER` updates the score and changes state.
 
 > ⚠️ **Render-timing nuance:** `STM_DISCONNECTED` only redraws when `state_changed` is set,
 > and `STM_PLAY`/`STM_STOP` redraw every loop. So a `SET_SCORE`/`SET_NAME` received while

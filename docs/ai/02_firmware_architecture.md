@@ -9,12 +9,12 @@
 | Definitions | `definitions.h` | Versions, BLE/UART constants, GPIO pin map |
 | BLE transport | `ble.cpp` / `ble.h` | NimBLE server, NUS UUIDs, RX/TX characteristics, callbacks, send/disconnect |
 | BLE processing | `ble_processing.cpp` / `ble_processing.h` | `ble_msg_t`, `ble_msg_id` enum, RTOS queue, command dispatch |
-| Inter-bot bridge | `interbot_comm.cpp` / `interbot_comm.h` | UART1 + USB-C SIBCP parsers, ESP-NOW setup, host <-> ESP-NOW forwarding, BLE debug logs |
+| Inter-bot bridge | `interbot_comm.cpp` / `interbot_comm.h` | UART1 + USB-C SIBCP parsers, ESP-NOW setup, host <-> ESP-NOW forwarding, reserved local system services, BLE debug logs |
 | SIBCP protocol | `sibcp_protocol.cpp` / `sibcp_protocol.h` | Frame constants, CRC-16/CCITT, streaming parser, frame builder, packet metadata |
 | State machine | `state_machine.cpp` / `state_machine.h` | `stm_states`, output-pin control, timer |
 | Display | `display.cpp` / `display.h` | SSD1306 rendering per state |
-| Status LED | `status_led.cpp` / `status_led.h` | 50% PWM RGB LED output: green for PLAY, red for stopped output |
-| Buzzer | `buzzer.cpp` / `buzzer.h` | Non-blocking 2.7 kHz beep on match-state changes |
+| Status LED | `status_led.cpp` / `status_led.h` | 50% PWM RGB LED output: green for PLAY, red for stopped output, guarded custom effects |
+| Buzzer | `buzzer.cpp` / `buzzer.h` | Non-blocking 2.7 kHz beep on match-state changes and predefined melodies |
 | Functions/util | `functions.cpp` / `functions.h` | MAC string, score/indicator globals, GPIO init, button handling |
 | Assets | `fonts.h`, `images.h` | OLED fonts and boot logo (`RC_logo`) |
 
@@ -53,8 +53,8 @@ extern "C" void app_main(void) { initArduino(); module_setup(); while (true) { m
 6. `module_init_gpios()` — `OUTPUT1_GPIO`/`OUTPUT2_GPIO` as `OUTPUT`; `BUTTON_GPIO`/
    `BUTTON2_GPIO` as `INPUT` (no explicit pull configured — see hardware doc).
 7. `buzzer_init()` and `status_led_init()` — initialize IO26 buzzer and RGB LED PWM.
-8. `interbot_comm_init()` — starts UART1 on IO4/IO5 at 460800 baud, configures 5 GHz
-   ESP-NOW on channel 36, and creates bounded radio/log queues.
+8. `interbot_comm_init()` — starts UART1 on IO4/IO5 at 460800 baud, configures 2.4 GHz
+   ESP-NOW on channel 1, and creates bounded radio/log queues.
 
 ## Main loop behavior
 
@@ -116,16 +116,21 @@ Inter-bot queues:
   The host commonly sees this as `/dev/ttyACM0`; the baud setting is ignored by USB.
 - UART0 TX (`Serial.write`) mirrors outbound SIBCP frames at `UART_SPEED=115200` but is not
   parsed as an input transport.
-- ESP-NOW runs in Wi-Fi station mode, 5 GHz only, channel `INTERBOT_WIFI_CHANNEL=36`,
+- ESP-NOW runs in Wi-Fi station mode, 2.4 GHz only, channel `INTERBOT_WIFI_CHANNEL=1`,
   with the broadcast peer `ff:ff:ff:ff:ff:ff`.
 - `sibcp_parser_push_byte()` accepts only complete frames with magic `0xAA 0x55`, payload
   length <= 240 bytes, and a valid CRC-16/CCITT.
 - UART1 -> ESP-NOW, USB-C -> ESP-NOW, and ESP-NOW -> host outputs all revalidate frames.
   Invalid frames are dropped.
-- Local referee state changes are emitted as `SIBCP_TOPIC_SYSTEM_GAME_STATE` (`0xF0`) with
-  payload `{state:uint8, robot_play:uint8_bool}`.
-- The module is a transport bridge only. Robot MCU firmware owns topic/service semantics,
-  transaction matching, service discovery responses, retries, and duplicate handling.
+- Local referee/app changes are emitted as reserved system topics:
+  `/system/game_state` (`0xF0`), `/system/score` (`0xF1`), `/system/match_time` (`0xF2`),
+  and `/system/referee_event` (`0xF3`).
+- The module is otherwise a transport bridge. Robot MCU firmware owns robot/world topic and
+  peer-service semantics, transaction matching, service discovery responses, retries, and
+  duplicate handling.
+- Local `/system/set_led` and `/system/play_melody` service requests are consumed by the
+  module before ESP-NOW forwarding. The LED service is rejected outside PLAY so stopped-output
+  red remains authoritative.
 
 See [12_sibcp_interbot_comm.md](12_sibcp_interbot_comm.md) for the frame format and
 limitations.
@@ -150,10 +155,11 @@ limitations.
   output mirror for binary SIBCP frames.
 - `serial_status_init()` installs the USB Serial/JTAG driver. `interbot_comm_update()` reads
   valid SIBCP frames from USB-C and forwards them to ESP-NOW.
-- `update_output_satet()` in `state_machine.cpp` now emits the reserved system SIBCP topic
-  `/system/game_state` via `interbot_comm_send_system_game_state()`. The payload carries
-  `state` (`INIT`, `DISCONNECTED`, `PLAY`, `STOP`, `DAMAGE`, `HALF_TIME`, `GAME_OVER`) and
-  `robot_play` (the direct replacement for the old text `PLAY`/`STOP` output).
+- `update_output_state()` in `state_machine.cpp` now emits reserved system SIBCP topics via
+  `interbot_comm_send_system_*()` helpers. `/system/game_state` carries `state` (`INIT`,
+  `DISCONNECTED`, `PLAY`, `STOP`, `DAMAGE`, `HALF_TIME`, `GAME_OVER`) and `robot_play`
+  (the direct replacement for the old text `PLAY`/`STOP` output). Score, countdown, and
+  referee-event topics expose additional app/referee context.
 - All other debug prints are **already commented out**: `ble.cpp:45,64,147,149`,
   `ble_processing.cpp:71`, `functions.cpp:107,121`. (Verified 2026-05-31.) The vendored
   `libraries/**/examples/*.ino` prints are not compiled; the OLED lib's `"[deprecated]"`

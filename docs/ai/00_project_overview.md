@@ -52,7 +52,7 @@ ble_processing.cpp  ble_msg_processing()  ── dispatch by msg_id ──►
       │
       ▼
 state_machine.cpp  stm_update()
-      ├─ update_output_satet(): OUTPUT1/OUTPUT2 GPIO HIGH (play) or LOW (stop)
+      ├─ update_output_state(): OUTPUT1/OUTPUT2 GPIO HIGH (play) or LOW (stop)
       ├─ interbot_comm_send_system_game_state(): SIBCP /system/game_state
       ├─ status_led_set_play(): dimmed RGB LED green for play, red for stopped output
       ├─ buzzer_notify_state_change(): short IO26 beep for match-state changes
@@ -68,7 +68,7 @@ Optional inter-bot flow:
 Robot MCU
       │  SIBCP frame over UART1 (IO4/IO5, 460800 baud) or USB-C
       ▼
-interbot_comm.cpp  ── validates SIBCP magic/length/CRC ──► ESP-NOW broadcast, 5 GHz ch. 36
+interbot_comm.cpp  ── validates SIBCP magic/length/CRC ──► ESP-NOW broadcast, 2.4 GHz ch. 1
       │
       ▼
 Peer module validates received SIBCP frame and writes it to UART1, USB-C, and UART0 TX
@@ -95,7 +95,7 @@ notification before disconnecting. See [03_ble_protocol.md](03_ble_protocol.md).
 
 > The old 2024 UART channel-select scheme (`LOGV`, `A0`, `A1`) is gone on V7 hardware.
 > UART1 (`RX1=IO4`, `TX1=IO5`) and USB-C are now SIBCP host transports bridged over
-> 5 GHz ESP-NOW. UART0 TX is a transmit-only SIBCP output mirror. See
+> 2.4 GHz ESP-NOW. UART0 TX is a transmit-only SIBCP output mirror. See
 > [05_hardware_mapping.md](05_hardware_mapping.md) and
 > [12_sibcp_interbot_comm.md](12_sibcp_interbot_comm.md).
 

@@ -46,7 +46,7 @@ while waiting for a connection).
   short beep on match-state changes. Third-button behavior is still future work. The
   supercap is hardware-only.
 - Experimental robot-to-robot transport is implemented as a SIBCP bridge: UART1
-  (`IO4`/`IO5`, 460800 baud) or USB-C to 5 GHz ESP-NOW broadcast on channel 36. The module
+  (`IO4`/`IO5`, 460800 baud) or USB-C to 2.4 GHz ESP-NOW broadcast on channel 1. The module
   validates frames and bridges them; the robot MCU owns topic/service behavior. A Python
   helper package in `python/sibcp` provides importable topic/service definitions for
   Python-based robot controllers.
@@ -63,7 +63,7 @@ while waiting for a connection).
 | 4 | [03_ble_protocol.md](03_ble_protocol.md) | UUIDs, message IDs, payloads, direction |
 | 5 | [04_state_machine.md](04_state_machine.md) | States, transitions, output behavior |
 | 6 | [05_hardware_mapping.md](05_hardware_mapping.md) | Pin map (C5 + legacy C6), to-verify |
-| 7 | [06_display_and_user_feedback.md](06_display_and_user_feedback.md) | Screens, proposed LED/buzzer |
+| 7 | [06_display_and_user_feedback.md](06_display_and_user_feedback.md) | Screens, status LED, buzzer |
 | 8 | [07_build_release_and_flasher.md](07_build_release_and_flasher.md) | Build, CI, web flasher |
 | 9 | [08_mobile_app_interaction.md](08_mobile_app_interaction.md) | App behavior, command mapping |
 | 10 | [09_known_issues_and_open_questions.md](09_known_issues_and_open_questions.md) | Risks, TODOs, unknowns |
@@ -99,8 +99,8 @@ while waiting for a connection).
   (`main/`), not the `.ino`.
 - `BUTTON_GPIO` is shared between the disconnect (long-press) and penalty (double-press)
   logic — changing one affects the other.
-- `stm_init()` sets a timer to `660000 ms` with a `// DOTO why ist here this? WTF` comment —
-  origin/purpose unconfirmed (see [04](04_state_machine.md)).
+- `stm_init()` sets a default `660000 ms` match timer. Damage and half-time commands
+  overwrite it with app-supplied countdown durations (see [04](04_state_machine.md)).
 - The **V7/2026 schematic is in the repo**: `pcb_schematic/SCH_Schematic1_2026-05-31.pdf`,
   with a pin-by-pin reference at `docs/ai/ESP32C5_RCJ_modul_hardware_reference.md`
   (**authoritative hardware source**). The firmware pin map matches it for all implemented

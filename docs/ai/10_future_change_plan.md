@@ -50,7 +50,7 @@ schematic is provided. Each stage is independently buildable, testable, and reve
 
 ## Stage 4b — SIBCP inter-bot bridge — ✅ FIRST SLICE DONE
 
-- Added UART1/SIBCP parser and ESP-NOW bridge on 5 GHz channel 36.
+- Added UART1/SIBCP parser and ESP-NOW bridge on 2.4 GHz channel 1.
 - Added USB-C as a SIBCP host transport and replaced plain serial `PLAY`/`STOP` text with
   the reserved `/system/game_state` topic.
 - Added BLE log notifications for forwarded frames.

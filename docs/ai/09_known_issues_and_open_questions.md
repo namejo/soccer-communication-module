@@ -18,11 +18,8 @@ the old contradictions below are now **reconciled** — kept here as history.
 
 ## TODO / suspicious comments in code
 
-- `state_machine.cpp:88` — `stm_set_timer(660000); //DOTO why ist here this? WTF`.
-  An 11-minute timer set at init with no clear purpose. **Do not remove blindly.**
 - `ble.cpp` — `//stm_set_state(STM_PLAY);` commented out in `onConnect` (connect no longer
   auto-plays — intentional).
-- `update_output_satet()` — typo in function name (`satet` → `state`); cosmetic.
 - Numerous commented-out `Serial.println` debug lines (`ble.cpp`, `ble_processing.cpp`,
   `functions.cpp`).
 
@@ -36,6 +33,9 @@ the old contradictions below are now **reconciled** — kept here as history.
   **Still to do:** (a) validate 3 s on real hardware doesn't cause spurious disconnects during
   normal play; (b) cherry-pick to the `legacy/esp32-c6` branch before the first legacy release.
   See [03_ble_protocol.md](03_ble_protocol.md), [11_legacy_c6_firmware.md](11_legacy_c6_firmware.md).
+- ✅ **Informal state-machine timer comment cleaned up**. `stm_init()` still sets the
+  default 660000 ms match timer, but the source now documents that state-specific timers
+  overwrite it when needed.
 
 ## Functional issues / sharp edges
 
@@ -57,9 +57,9 @@ the old contradictions below are now **reconciled** — kept here as history.
    `<<8`); the over-BLE reply sends `MAJOR` and `MINOR` separately, so this combined macro's
    only consumer/intent is unclear.
 9. **Experimental inter-bot bridge is broadcast-only** — SIBCP frames are validated and
-   bridged over ESP-NOW, but there is no addressing, duplicate filtering, ACK/retry,
-   encryption, or service registry in the module. More than two modules need protocol
-   hardening before match use.
+   bridged over ESP-NOW, and the module consumes reserved local `/system/...` services, but
+   there is no peer addressing, duplicate filtering, ACK/retry, encryption, or peer service
+   registry in the module. More than two modules need protocol hardening before match use.
 
 ## Schematic details — NOW RESOLVED
 
@@ -79,7 +79,7 @@ previously-blocking unknowns are resolved (see [05_hardware_mapping.md](05_hardw
 - **UART**: UART0 (RX0/TX0, flashing/primary) and UART1 (RX1=IO4, TX1=IO5) on U3 header.
 - **USB**: native USB on IO13/IO14 (flashing/reset path and SIBCP host transport) — do not
   reassign.
-- **Inter-bot bridge**: UART1 IO4/IO5 at 460800 baud and USB-C to ESP-NOW 5 GHz channel 36,
+- **Inter-bot bridge**: UART1 IO4/IO5 at 460800 baud and USB-C to ESP-NOW 2.4 GHz channel 1,
   SIBCP frame validation and forwarding implemented.
 
 Residual low-risk verifications (do not block re-pinning) are listed in
@@ -101,8 +101,7 @@ Residual low-risk verifications (do not block re-pinning) are listed in
    buzzer patterns (the tables in [06](06_display_and_user_feedback.md) are guesses). Pins
    are now known (RGB R/G/B = IO27/IO24/IO23; buzzer = IO26).
 6. Intended role of the **third button** B3 = **IO6 / SW2** (menu? channel? manual play/stop?).
-7. Purpose of the **`660000 ms`** init timer — keep, fix, or remove?
-8. Should the `.ino` entry point be retired in favor of the IDF `main/` path?
+7. Should the `.ino` entry point be retired in favor of the IDF `main/` path?
 
 ## Build/CI notes
 
