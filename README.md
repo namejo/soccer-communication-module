@@ -90,11 +90,15 @@ Mount the module where the **display stays visible** and the connector is **easy
 
 ### Penalties (fast & quiet)
 
-To penalize a robot, **double-press the large button** on the module. The module sends a penalty request to the referee app, so the right robot is identified and the penalty timer starts — no shouting robot designators across the field. The firmware detects the double-press and sends the request **only while the robot is in the PLAY state**.
+To penalize a robot, **double-press the large button** on the module — the two presses must land **within 1 second** of each other. The module sends a penalty request to the referee app, so the right robot is identified and the penalty timer starts — no shouting robot designators across the field. The firmware detects the double-press and sends the request **only while the robot is in the PLAY state**.
 
 ### Putting robots back in
 
 The OLED shows a **countdown** for the duration of a robot's penalty. Teams may return robots to play, per the rules, once the penalty time is up on the display.
+
+### Disconnecting without cutting power
+
+**Hold the large button for 5 seconds** to disconnect the module from the referee app — no need to unplug the battery between matches.
 
 ---
 
@@ -110,7 +114,7 @@ Firmware-level framing uses SIBCP:
 AA 55 | type | transaction_id | identifier_id | payload_len | payload | crc16
 ```
 
-The module validates the magic bytes, payload length, and CRC-16/CCITT before forwarding. The robot controller remains responsible for interpreting topics, service requests, service responses, and discovery payloads. A BLE log characteristic reports forwarded frames for debugging.
+The module validates the magic bytes, payload length, and CRC-16/CCITT before forwarding (full field-by-field wire format: [docs/ai/12_sibcp_interbot_comm.md](docs/ai/12_sibcp_interbot_comm.md)). The robot controller remains responsible for interpreting topics, service requests, service responses, and discovery payloads. A BLE log characteristic reports forwarded frames for debugging.
 
 ### Quick USB-C service test
 
@@ -171,9 +175,19 @@ cmake --install /tmp/rjscm-build --prefix /tmp/rjscm-install
 
 Built-in helpers define standard robot/world topics such as `/robot/pose`, `/world/ball`, `/world/opponent`, `/ball_in_your_vision`, and `/request_role`. Firmware-owned system topics include `/system/game_state`, `/system/score`, `/system/match_time`, and `/system/referee_event`.
 
-The local module also consumes `/system/set_led` and `/system/play_melody` service requests.
-These are not broadcast to the peer module. The LED service is accepted only while the referee
-state is PLAY so stopped-output red remains the safety signal.
+### LED and melody control from your robot
+
+Your robot can also use the module as a feedback device through two local-only system services:
+
+- **`/system/set_led`** sets the RGB status LED with a mode (`off`, `solid`, `blink`, or `pulse`), an RGB color, and an optional duration. Requests are accepted **only while the referee state is PLAY**, so the dimmed-red stopped indication remains the safety signal. Brightness is capped at 50% duty so the LED never blinds cameras or referees.
+- **`/system/play_melody`** plays a built-in melody (`GOAL` or `ACK`) on the buzzer; the repeat count is capped at 4.
+
+```python
+robot.set_led(red=0, green=0, blue=255, mode=rjscm.LedMode.BLINK)
+robot.play_melody(rjscm.MelodyId.GOAL, repeat=2)
+```
+
+These requests are not broadcast to the peer module. The module advertises both services every 0.5 s with a SIBCP service-discovery frame (`source_robot_id = 0` is reserved for the module itself), so client libraries can detect them automatically.
 
 Both robots must use the same path-to-ID mapping. Use IDs `0x20` through `0xEF` for team-defined topics and services. IDs `0xF0` through `0xFF` are reserved for firmware/system features and are filtered if received from outside the local module.
 
