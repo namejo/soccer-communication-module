@@ -160,6 +160,12 @@ bool sibcp_build_frame(
     uint16_t payload_length,
     sibcp_frame_t *frame
 );
+bool sibcp_build_service_discovery_frame(
+    uint8_t source_robot_id,
+    const uint8_t *service_ids,
+    uint8_t service_count,
+    sibcp_frame_t *frame
+);
 uint16_t sibcp_crc16_ccitt(const uint8_t *data, size_t length);
 bool sibcp_validate_frame(const uint8_t *data, size_t length, sibcp_frame_t *frame);
 const char *sibcp_packet_type_name(uint8_t packet_type);

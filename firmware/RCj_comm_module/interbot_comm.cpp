@@ -21,6 +21,10 @@
 #define INTERBOT_LOG_LINE_LENGTH    96
 #define USB_READ_CHUNK_LENGTH       32
 #define INTERBOT_DIAGNOSTICS_INTERVAL_MS 5000u
+// Matches Python DEFAULT_ADVERTISE_INTERVAL (0.5 s) and the rjscm.c default.
+#define INTERBOT_ADVERTISE_INTERVAL_MS 500u
+// Robot id 0 in discovery frames is reserved for the module itself.
+#define INTERBOT_LOCAL_MODULE_ROBOT_ID 0u
 
 struct interbot_radio_frame_t {
     uint8_t data[SIBCP_MAX_FRAME_LENGTH];
@@ -57,6 +61,7 @@ static QueueHandle_t log_queue = NULL;
 static bool interbot_ready = false;
 static bool local_serial_ready = false;
 static uint32_t next_diagnostics_log_ms = 0;
+static uint32_t next_advertise_ms = 0;
 static interbot_diagnostics_t diagnostics = {};
 
 enum local_frame_target_t : uint8_t {
@@ -64,6 +69,21 @@ enum local_frame_target_t : uint8_t {
     LOCAL_TARGET_UART,
     LOCAL_TARGET_USB,
 };
+
+static void push_log_item(const interbot_log_item_t &item)
+{
+    if (xQueueSend(log_queue, &item, 0) == pdTRUE) {
+        return;
+    }
+
+    // Queue full: discard the oldest entry to make room. That discard is a drop.
+    interbot_log_item_t dropped_item;
+    xQueueReceive(log_queue, &dropped_item, 0);
+    diagnostics.log_dropped.fetch_add(1, std::memory_order_relaxed);
+    if (xQueueSend(log_queue, &item, 0) != pdTRUE) {
+        diagnostics.log_dropped.fetch_add(1, std::memory_order_relaxed);
+    }
+}
 
 static void queue_log(const char *direction, const sibcp_frame_t &frame)
 {
@@ -83,13 +103,7 @@ static void queue_log(const char *direction, const sibcp_frame_t &frame)
         frame.payload_length
     );
 
-    if (xQueueSend(log_queue, &item, 0) != pdTRUE) {
-        interbot_log_item_t dropped_item;
-        xQueueReceive(log_queue, &dropped_item, 0);
-        if (xQueueSend(log_queue, &item, 0) != pdTRUE) {
-            diagnostics.log_dropped.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
+    push_log_item(item);
 }
 
 static void queue_text_log(const char *line)
@@ -101,13 +115,7 @@ static void queue_text_log(const char *line)
     interbot_log_item_t item;
     snprintf(item.line, sizeof(item.line), "%s", line);
 
-    if (xQueueSend(log_queue, &item, 0) != pdTRUE) {
-        interbot_log_item_t dropped_item;
-        xQueueReceive(log_queue, &dropped_item, 0);
-        if (xQueueSend(log_queue, &item, 0) != pdTRUE) {
-            diagnostics.log_dropped.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
+    push_log_item(item);
 }
 
 static void on_esp_now_send(const esp_now_send_info_t *info, esp_now_send_status_t status)
@@ -473,6 +481,34 @@ static void maybe_log_diagnostics()
     queue_text_log(line);
 }
 
+static void maybe_advertise_services()
+{
+    const uint32_t now = millis();
+    if (next_advertise_ms != 0 && (int32_t)(now - next_advertise_ms) < 0) {
+        return;
+    }
+    next_advertise_ms = now + INTERBOT_ADVERTISE_INTERVAL_MS;
+
+    // The services handled locally by handle_local_system_service(). They are
+    // local-only, so the advertisement goes to the host links and not ESP-NOW.
+    static const uint8_t local_service_ids[] = {
+        SIBCP_SERVICE_SYSTEM_SET_LED,
+        SIBCP_SERVICE_SYSTEM_PLAY_MELODY,
+    };
+
+    sibcp_frame_t frame;
+    if (!sibcp_build_service_discovery_frame(
+        INTERBOT_LOCAL_MODULE_ROBOT_ID,
+        local_service_ids,
+        sizeof(local_service_ids),
+        &frame
+    )) {
+        return;
+    }
+
+    write_local_frame(frame.data, frame.length);
+}
+
 static void process_log_output()
 {
     interbot_log_item_t item;
@@ -487,6 +523,7 @@ void interbot_comm_update()
     process_uart_input();
     process_usb_input();
     process_radio_input();
+    maybe_advertise_services();
     maybe_log_diagnostics();
     process_log_output();
 }

@@ -82,6 +82,38 @@ bool sibcp_build_frame(
     return true;
 }
 
+bool sibcp_build_service_discovery_frame(
+    uint8_t source_robot_id,
+    const uint8_t *service_ids,
+    uint8_t service_count,
+    sibcp_frame_t *frame
+)
+{
+    if (frame == NULL) {
+        return false;
+    }
+
+    if (service_count > 0 && service_ids == NULL) {
+        return false;
+    }
+
+    // Payload layout shared with the Python and C clients:
+    // [source_robot_id, service_count, id0, id1, ...]
+    uint16_t payload_length = 2u + service_count;
+    if (payload_length > SIBCP_MAX_PAYLOAD_LENGTH) {
+        return false;
+    }
+
+    uint8_t payload[2u + 255u];
+    payload[0] = source_robot_id;
+    payload[1] = service_count;
+    if (service_count > 0) {
+        memcpy(&payload[2], service_ids, service_count);
+    }
+
+    return sibcp_build_frame(SIBCP_PACKET_SERVICE_DISCOVERY, 0, 0, payload, payload_length, frame);
+}
+
 bool sibcp_validate_frame(const uint8_t *data, size_t length, sibcp_frame_t *frame)
 {
     if (length < SIBCP_HEADER_LENGTH + SIBCP_CRC_LENGTH || length > SIBCP_MAX_FRAME_LENGTH) {

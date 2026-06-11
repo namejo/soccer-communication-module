@@ -60,6 +60,12 @@ Packet types currently named by firmware:
 | `0x03` | service response |
 | `0x04` | service discovery |
 
+The firmware itself emits a service-discovery frame every 500 ms on the local host links
+(UART1 + USB, not ESP-NOW) advertising its local `/system/set_led` and `/system/play_melody`
+services. The payload layout matches the Python and C clients:
+`[source_robot_id, count, id0, id1, ...]` with `transaction_id = 0` and `identifier_id = 0`;
+`source_robot_id = 0` is reserved for the module itself.
+
 Standard identifiers currently defined by firmware and the Python library:
 
 | Kind | Value | Path / meaning |
@@ -206,7 +212,8 @@ def handle_referee_event(message):
 
 - Broadcast only; no per-peer addressing or duplicate filtering.
 - No ACK, retry, congestion control, encryption, or authentication.
-- No peer service discovery response generation inside the module.
+- The module advertises only its own local system services; it does not aggregate or
+  re-advertise peer robot services.
 - No runtime channel configuration; channel 1 is compiled in.
 - Two-module communication is the intended first test case. More than two modules will need
   addressing and duplicate handling before match use.
