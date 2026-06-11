@@ -1,6 +1,6 @@
 #include <sys/_stdint.h>
-#ifndef BLE_PROCCESING_H
-#define BLE_PROCCESING_H
+#ifndef BLE_PROCESSING_H
+#define BLE_PROCESSING_H
 
 // Message structure
 typedef struct {
@@ -30,8 +30,8 @@ int8_t ble_msg_processing_init();
 
 int8_t ble_msg_processing();
 
-QueueHandle_t ble_msg_proccesing_get_queue();
+QueueHandle_t ble_msg_processing_get_queue();
 
-void ble_msg_procesing_ask_for_penalty();
+void ble_msg_processing_ask_for_penalty();
 
-#endif // BLE_PROCCESING_H
+#endif // BLE_PROCESSING_H

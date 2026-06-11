@@ -86,7 +86,7 @@ compiled. Useful only if a C6 board must be reflashed.
   (5000 ms) calls `ble_disconnect()`.
 - **`check_penalty_button()`**: a debounced (`DEBOUNCE_DELAY` 50 ms) **double-press**
   (within `DOUBLE_PRESS_MAX_DELAY` 1000 ms) of `BUTTON_GPIO` **OR** `BUTTON2_GPIO` calls
-  `ble_msg_procesing_ask_for_penalty()` (sends `BLE_MSG_ASK_FOR_PENALTY`, only while
+  `ble_msg_processing_ask_for_penalty()` (sends `BLE_MSG_ASK_FOR_PENALTY`, only while
   `STM_PLAY`).
 
 > **Shared-pin caution:** `BUTTON_GPIO` participates in both the disconnect long-press and

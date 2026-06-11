@@ -96,7 +96,7 @@ int8_t ble_start_server() {
     ble_msg_processing_init();
 
     // Assign message queue
-    ble_msg_queue = ble_msg_proccesing_get_queue();
+    ble_msg_queue = ble_msg_processing_get_queue();
 
     // Create the BLE Device
     BLEDevice::init(BLE_NAME);

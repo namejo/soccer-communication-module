@@ -13,6 +13,10 @@
 #include <time.h>
 #include <unistd.h>
 
+/* Wire-format constants intentionally duplicated from
+ * firmware/RCj_comm_module/sibcp_protocol.h: this library is standalone and
+ * must not include firmware headers. Keep in sync; CI's
+ * test_firmware_sibcp_protocol target compiles the firmware codec host-side. */
 #define RJSCM_START_BYTE_0 0xAAu
 #define RJSCM_START_BYTE_1 0x55u
 #define RJSCM_HEADER_LENGTH 8u

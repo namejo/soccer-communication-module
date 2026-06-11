@@ -72,7 +72,7 @@ extern "C" void app_main(void) { initArduino(); module_setup(); while (true) { m
 4. **`check_disconnect_button()`** — long-press (`DISCONNECT_HOLD_TIME = 5000 ms`) on
    `BUTTON_GPIO` triggers `ble_disconnect()`.
 5. **`check_penalty_button()`** — double-press on `BUTTON_GPIO` **or** `BUTTON2_GPIO`
-   triggers `ble_msg_procesing_ask_for_penalty()`.
+   triggers `ble_msg_processing_ask_for_penalty()`.
 
 There is **no explicit task split**: everything runs in the single `app_main`/loop thread.
 BLE callbacks run in the NimBLE host context and only enqueue work, keeping the ISR/callback
@@ -92,7 +92,7 @@ queues.
 queue is full it drops the **oldest** message (`xQueueReceive`) and retries the send, so the
 newest referee command is never lost to a backlog. Both `ble.cpp` and `ble_processing.cpp`
 hold their own `static QueueHandle_t ble_msg_queue`; `ble.cpp` fetches the handle via
-`ble_msg_proccesing_get_queue()` during `ble_start_server()`.
+`ble_msg_processing_get_queue()` during `ble_start_server()`.
 
 Other shared globals (`current_state`, `robot_play`, `timer_stop`, `module_indicator`,
 `my_score`, `opponent_score`, `device_connected`) are accessed without locks. In practice

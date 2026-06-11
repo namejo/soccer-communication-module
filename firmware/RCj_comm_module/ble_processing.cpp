@@ -123,11 +123,11 @@ int8_t ble_msg_processing() {
     return ESP_OK;
 }
 
-QueueHandle_t ble_msg_proccesing_get_queue() {
+QueueHandle_t ble_msg_processing_get_queue() {
     return ble_msg_queue;
 }
 
-void ble_msg_procesing_ask_for_penalty() {
+void ble_msg_processing_ask_for_penalty() {
     if (stm_get_state() == STM_PLAY) {
         uint8_t data = BLE_MSG_ASK_FOR_PENALTY;
         ble_send_msg(&data, 1);

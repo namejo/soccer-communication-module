@@ -36,7 +36,7 @@ String BLE_MAC_to_string() {
     uint8_t base_mac[6];
     char BLE_mac[18];
     esp_read_mac(base_mac, ESP_MAC_BT);
-    sprintf(BLE_mac, "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0], base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
+    snprintf(BLE_mac, sizeof(BLE_mac), "%02X:%02X:%02X:%02X:%02X:%02X", base_mac[0], base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
     return String(BLE_mac);
 }
 
@@ -109,7 +109,7 @@ void check_penalty_button() {
                     // Double press detect
                     double_waiting_second_press = false; // reset
                     //Serial.println("Double Press Detected");
-                    ble_msg_procesing_ask_for_penalty();
+                    ble_msg_processing_ask_for_penalty();
                 } else {
                     // First press
                     double_first_press_time = millis();

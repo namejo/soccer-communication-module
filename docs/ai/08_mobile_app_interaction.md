@@ -53,7 +53,7 @@ Two distinct paths:
    millisecond duration → `STM_DAMAGE` countdown, outputs LOW.
 2. **Self-penalty request (module → app):** local **double-press** of `BUTTON_GPIO` or
    `BUTTON2_GPIO` while in `STM_PLAY` sends `BLE_MSG_ASK_FOR_PENALTY` to the app
-   (`functions.cpp` → `ble_msg_procesing_ask_for_penalty()`). The firmware does **not**
+   (`functions.cpp` → `ble_msg_processing_ask_for_penalty()`). The firmware does **not**
    change its own state on a self-penalty request — it is up to the app/referee to respond
    (presumably by sending `BLE_MSG_DAMAGE`). Added in commit `e423b0d`.
 
