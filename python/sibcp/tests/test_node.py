@@ -347,6 +347,123 @@ class NodeTests(unittest.TestCase):
             caller.close()
             thread.join(timeout=0.1)
 
+    def test_transaction_id_wraparound_skips_zero(self):
+        transport, _peer_transport = MemoryTransport.pair()
+        node = SibcpNode(transport)
+        try:
+            node._transaction_id = 0xFFFF
+            self.assertEqual(node._next_transaction_id(), 1)
+        finally:
+            node.close()
+
+    def test_service_call_after_transaction_wraparound(self):
+        caller_transport, responder_transport = MemoryTransport.pair()
+        caller = SibcpNode(caller_transport)
+        responder = SibcpNode(responder_transport)
+        caller.service(BALL_SERVICE, service_id=1, response=Bool)
+        responder.service(BALL_SERVICE, service_id=1, response=Bool)
+
+        @responder.on_service(BALL_SERVICE)
+        def handle_ball_request(_request):
+            return True
+
+        responder.start_background_reader()
+        try:
+            caller._transaction_id = 0xFFFF
+            self.assertTrue(caller.call(BALL_SERVICE, timeout=0.5))
+        finally:
+            responder.close()
+            caller.close()
+
+    def test_discovery_roundtrip_and_overwrite(self):
+        advertiser_transport, receiver_transport = MemoryTransport.pair()
+        advertiser = SibcpNode(advertiser_transport)
+        receiver = SibcpNode(receiver_transport)
+        advertiser.service("/one", service_id=1, response=Bool)
+        advertiser.service("/two", service_id=2, response=Bool)
+
+        try:
+            advertiser.advertise_services(source_robot_id=3, service_ids=[1])
+            receiver.poll(timeout=0.5)
+            self.assertEqual(receiver.discovered_services[3], {1})
+
+            advertiser.advertise_services(source_robot_id=3, service_ids=[2])
+            receiver.poll(timeout=0.5)
+            self.assertEqual(receiver.discovered_services[3], {2})
+        finally:
+            receiver.close()
+            advertiser.close()
+
+    def test_firmware_shaped_discovery_frame(self):
+        # The communication module firmware advertises its local services with
+        # this exact payload: [source_robot_id=0, count=2, 0xF0, 0xF1].
+        node_transport, peer_transport = MemoryTransport.pair()
+        node = SibcpNode(node_transport)
+
+        try:
+            peer_transport.write(
+                encode_frame(
+                    PacketType.SERVICE_DISCOVERY, 0, 0, bytes([0, 2, 0xF0, 0xF1])
+                )
+            )
+            node.poll(timeout=0.5)
+            self.assertEqual(node.discovered_services[0], {0xF0, 0xF1})
+        finally:
+            node.close()
+
+    def test_malformed_discovery_frames_are_ignored(self):
+        node_transport, peer_transport = MemoryTransport.pair()
+        logged = []
+        node = SibcpNode(node_transport, logger=logged.append)
+
+        try:
+            peer_transport.write(
+                encode_frame(PacketType.SERVICE_DISCOVERY, 0, 0, b"\x05")
+            )
+            peer_transport.write(
+                encode_frame(PacketType.SERVICE_DISCOVERY, 0, 0, bytes([1, 5, 0x10]))
+            )
+            node.poll(timeout=0.5)
+            node.poll(timeout=0.5)
+
+            self.assertEqual(node.discovered_services, {})
+            self.assertEqual(len(logged), 2)
+        finally:
+            node.close()
+
+    def test_service_response_missing_status_byte_raises(self):
+        caller_transport, peer_transport = MemoryTransport.pair()
+        caller = SibcpNode(caller_transport)
+        caller.service(BALL_SERVICE, service_id=1, response=Bool)
+        errors = []
+
+        def call_service():
+            try:
+                caller.call(BALL_SERVICE, timeout=0.5)
+            except BaseException as exc:
+                errors.append(exc)
+
+        thread = threading.Thread(target=call_service)
+        thread.start()
+
+        try:
+            request_frame = self._read_peer_frame(peer_transport)
+            empty_response = encode_frame(
+                PacketType.SERVICE_RESPONSE,
+                request_frame.transaction_id,
+                1,
+                b"",
+            )
+            peer_transport.write(empty_response)
+            thread.join(timeout=0.5)
+
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(type(errors[0]).__name__, "CodecError")
+        finally:
+            caller.close()
+            thread.join(timeout=0.1)
+
     def _read_peer_frame(self, transport):
         parser = StreamingParser()
         deadline = time.monotonic() + 0.5
